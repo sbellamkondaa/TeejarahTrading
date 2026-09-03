@@ -1,0 +1,72 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teejarah/tradetally:local
+    ports: []
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      JWT_EXPIRE: ${JWT_EXPIRE}
+      BROKER_ENCRYPTION_KEY: ${BROKER_ENCRYPTION_KEY}
+      INSTANCE_NAME: ${INSTANCE_NAME}
+      INSTANCE_URL: ${INSTANCE_URL}
+      APP_URL: ${APP_URL}
+      BASE_URL: ${BASE_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      VITE_API_URL: ${VITE_API_URL}
+      TZ: ${TZ}
+      REGISTRATION_MODE: ${REGISTRATION_MODE}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER}
+      REQUIRE_HTTPS: ${REQUIRE_HTTPS}
+      TRUST_PROXY: ${TRUST_PROXY}
+      DETAILED_AUTH_ERRORS: ${DETAILED_AUTH_ERRORS}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS}
+      BILLING_ENABLED: ${BILLING_ENABLED}
+      FEATURES_BILLING_ENABLED: ${FEATURES_BILLING_ENABLED}
+      ALLOW_LOCAL_AI_ENDPOINTS: ${ALLOW_LOCAL_AI_ENDPOINTS}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER}
+      YAHOO_FINANCE_ENABLED: ${YAHOO_FINANCE_ENABLED}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS}
+      ENABLE_PRICE_MONITORING: ${ENABLE_PRICE_MONITORING}
+      ENABLE_TRADE_ENRICHMENT: ${ENABLE_TRADE_ENRICHMENT}
+      ENABLE_JOB_RECOVERY: ${ENABLE_JOB_RECOVERY}
+      ENABLE_BROKER_SYNC_SCHEDULER: ${ENABLE_BROKER_SYNC_SCHEDULER}
+      ENABLE_NEWS_SCHEDULER: ${ENABLE_NEWS_SCHEDULER}
+      ENABLE_STOCK_SCANNER: ${ENABLE_STOCK_SCANNER}
+      ENABLE_BACKUP_SCHEDULER: ${ENABLE_BACKUP_SCHEDULER}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME}
+      LOG_LEVEL: ${LOG_LEVEL}
+      DEBUG: ${DEBUG}
+    networks:
+      - trader-network
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: teejarah-cloudflared
+    env_file:
+      - /opt/teejarah/secrets/cloudflare.env
+    command: tunnel --no-autoupdate run
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - trader-network
+    restart: unless-stopped
+
+networks:
+  trader-network:
+    driver: bridge
