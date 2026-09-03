@@ -202,7 +202,13 @@ class SchwabMarketData {
       const result = {
         c: quote.lastPrice,           // Current price
         d: quote.netChange,           // Day change
-        dp: quote.netPercentChangeInDouble, // Day percent change
+        dp: quote.netPercentChangeInDouble ??
+            (Number.isFinite(Number(quote.lastPrice)) &&
+             Number.isFinite(Number(quote.closePrice)) &&
+             Number(quote.closePrice) !== 0
+              ? ((Number(quote.lastPrice) - Number(quote.closePrice)) /
+                 Number(quote.closePrice)) * 100
+              : null), // Day percent change
         h: quote.highPrice,           // Day high
         l: quote.lowPrice,            // Day low (LOD)
         o: quote.openPrice,           // Open price
@@ -279,7 +285,13 @@ class SchwabMarketData {
           results[symbol] = {
             c: quote.lastPrice,
             d: quote.netChange,
-            dp: quote.netPercentChangeInDouble,
+            dp: quote.netPercentChangeInDouble ??
+            (Number.isFinite(Number(quote.lastPrice)) &&
+             Number.isFinite(Number(quote.closePrice)) &&
+             Number(quote.closePrice) !== 0
+              ? ((Number(quote.lastPrice) - Number(quote.closePrice)) /
+                 Number(quote.closePrice)) * 100
+              : null),
             h: quote.highPrice,
             l: quote.lowPrice,
             o: quote.openPrice,
@@ -337,6 +349,11 @@ class SchwabMarketData {
           periodType = 'day';
           break;
         case '30':
+          frequencyType = 'minute';
+          frequency = 30;
+          periodType = 'day';
+          break;
+        case '60':
           frequencyType = 'minute';
           frequency = 30;
           periodType = 'day';

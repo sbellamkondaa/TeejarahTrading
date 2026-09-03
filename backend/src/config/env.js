@@ -22,7 +22,9 @@ const envSchema = Joi.object({
   EMAIL_FROM: Joi.string().email().allow('', null),
   SUPPORT_EMAIL: Joi.string().email().allow('', null),
   ENABLE_PRICE_MONITORING: Joi.string().valid('true', 'false').default('true'),
-  MARKET_DATA_PROVIDER: Joi.string().valid('finnhub', 'fmp').default('finnhub'),
+  MARKET_DATA_PROVIDER: Joi.string()
+    .valid('schwab', 'finnhub', 'fmp')
+    .default('schwab'),
   FINNHUB_API_KEY: Joi.string().allow('', null),
   FMP_API_KEY: Joi.string().allow('', null),
   ENABLE_BACKUP_SCHEDULER: Joi.string().valid('true', 'false').default('true'),
@@ -48,10 +50,15 @@ function validateEnv() {
     warnings.push('JWT_SECRET is using the example placeholder value.');
   }
 
-  const effectiveMarketDataProvider = value.MARKET_DATA_PROVIDER === 'fmp' ? 'fmp' : 'finnhub';
+  const effectiveMarketDataProvider =
+    value.MARKET_DATA_PROVIDER === 'schwab'
+      ? 'schwab'
+      : value.MARKET_DATA_PROVIDER === 'fmp'
+        ? 'fmp'
+        : 'finnhub';
   const marketDataKey = effectiveMarketDataProvider === 'fmp' ? value.FMP_API_KEY : value.FINNHUB_API_KEY;
   const marketDataKeyName = effectiveMarketDataProvider === 'fmp' ? 'FMP_API_KEY' : 'FINNHUB_API_KEY';
-  if (value.ENABLE_PRICE_MONITORING !== 'false' && !marketDataKey) {
+  if (effectiveMarketDataProvider !== 'schwab' && value.ENABLE_PRICE_MONITORING !== 'false' && !marketDataKey) {
     warnings.push(`ENABLE_PRICE_MONITORING is enabled but ${marketDataKeyName} is not configured.`);
   }
 
