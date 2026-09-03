@@ -46,7 +46,7 @@ import { ref, computed, onMounted } from 'vue'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 
-const APP_STORE_URL = 'https://apps.apple.com/us/app/tradetally/id6748022992'
+const APP_STORE_URL = ''
 const DISMISS_KEY = 'ios_app_banner_dismissed'
 
 const authStore = useAuthStore()

@@ -442,11 +442,11 @@
                             <p>
                                 GitHub:
                                 <a
-                                    href="https://github.com/GeneBO98/tradetally"
+                                    href="https://journal.teejarah.com"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     class="text-primary-600 dark:text-primary-400 hover:underline"
-                                    >https://github.com/GeneBO98/tradetally</a
+                                    >https://journal.teejarah.com</a
                                 >
                             </p>
                         </div>

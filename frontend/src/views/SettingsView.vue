@@ -2536,7 +2536,7 @@ async function exportUserData() {
 
         // Generate filename with current date
         const today = new Date().toISOString().split("T")[0];
-        link.download = `tradetally-export-${today}.json`;
+        link.download = `teejarah-export-${today}.json`;
 
         // Trigger download
         document.body.appendChild(link);
@@ -2574,7 +2574,7 @@ async function exportTradesToCSV() {
 
         // Get filename from Content-Disposition header or use default
         const contentDisposition = response.headers["content-disposition"];
-        let filename = "tradetally-export.csv";
+        let filename = "teejarah-export.csv";
         if (contentDisposition) {
             const match = contentDisposition.match(/filename="(.+)"/);
             if (match) filename = match[1];

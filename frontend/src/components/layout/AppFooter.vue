@@ -54,7 +54,7 @@
           </a>
           <span>&bull;</span>
           <a
-            href="https://x.com/Teejarah TradingIO"
+            href="https://journal.teejarah.com"
             target="_blank"
             rel="me noopener noreferrer"
             class="inline-flex items-center hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
@@ -68,7 +68,7 @@
           </a>
           <span>&bull;</span>
           <a
-            href="https://github.com/GeneBO98/tradetally"
+            href="https://journal.teejarah.com"
             target="_blank"
             rel="noopener noreferrer"
             class="inline-flex items-center hover:text-primary-600 dark:hover:text-primary-400 transition-colors"

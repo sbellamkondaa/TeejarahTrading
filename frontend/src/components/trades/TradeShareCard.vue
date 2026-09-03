@@ -451,7 +451,7 @@ function exportBlob() {
 function shareFileName() {
   const symbol = String(props.trade.underlying_symbol || props.trade.symbol || 'trade').toUpperCase()
   const date = String(props.trade.trade_date || '').slice(0, 10)
-  return `tradetally-${symbol}${date ? `-${date}` : ''}.png`
+  return `teejarah-${symbol}${date ? `-${date}` : ''}.png`
 }
 
 async function downloadImage() {

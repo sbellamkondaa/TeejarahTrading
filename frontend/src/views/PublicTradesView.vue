@@ -17,7 +17,7 @@
         You can also read
         <a href="https://journal.teejarah.com/docs" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">Documentation</a>
         and view the
-        <a href="https://github.com/GeneBO98/tradetally" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">open-source repository</a>.
+        <a href="https://journal.teejarah.com" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">open-source repository</a>.
       </p>
     </div>
 
