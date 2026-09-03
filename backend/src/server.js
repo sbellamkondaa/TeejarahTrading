@@ -552,6 +552,11 @@ async function startTradeEnrichmentWorker() {
 }
 
 function scheduleBackgroundServices(backgroundJobsDisabled) {
+  if (backgroundJobsDisabled) {
+    console.log('[SCHEDULER] Background services disabled for this process role.');
+    return;
+  }
+
   const initialDelayMs = getPositiveIntEnv('BACKGROUND_JOB_START_DELAY_MS', 5000);
   const spacingMs = getPositiveIntEnv('BACKGROUND_JOB_START_SPACING_MS', 1000);
   let nextDelayMs = initialDelayMs;
@@ -901,7 +906,17 @@ async function startServer() {
     storageHealth.warnings.forEach((warning) => logger.warn(warning, 'startup'));
     // A read-only standby must never write on boot or start schedulers.
     const standbyMode = await detectStandbyMode();
-    const backgroundJobsDisabled = isBackgroundJobsDisabled() || standbyMode;
+    const processRole = String(process.env.PROCESS_ROLE || 'all').toLowerCase();
+
+    if (!['api', 'worker', 'all'].includes(processRole)) {
+      throw new Error(`Invalid PROCESS_ROLE: ${processRole}. Use api, worker, or all.`);
+    }
+
+    // API processes must never run schedulers or background workers.
+    const backgroundJobsDisabled =
+      processRole === 'api' ||
+      isBackgroundJobsDisabled() ||
+      standbyMode;
     if (standbyMode) {
       logger.warn('STANDBY MODE: database is a read-only replica — skipping migrations, schema repair, billing init, and ALL background jobs. Promote the database and restart to run as primary.', 'startup');
     }
@@ -932,6 +947,17 @@ async function startServer() {
 
       // Initialize billing service (conditional)
       await BillingService.initialize();
+    }
+
+    // Worker processes run schedulers and queues but do not expose HTTP.
+    if (processRole === 'worker') {
+      logger.info('[WORKER] Worker process starting background services.');
+      if (standbyMode) {
+        logger.warn('[WORKER] Standby database detected; background services disabled.');
+      } else {
+        scheduleBackgroundServices(backgroundJobsDisabled);
+      }
+      return;
     }
 
     // Start the server

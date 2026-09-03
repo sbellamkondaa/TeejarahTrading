@@ -6,6 +6,8 @@ services:
     image: teejarah/tradetally:local
     ports: []
     environment:
+      PROCESS_ROLE: api
+      DISABLE_BACKGROUND_JOBS: "true"
       NODE_ENV: ${NODE_ENV}
       PORT: ${PORT}
       DB_HOST: ${DB_HOST}
@@ -37,6 +39,13 @@ services:
       FEATURES_BILLING_ENABLED: ${FEATURES_BILLING_ENABLED}
       ALLOW_LOCAL_AI_ENDPOINTS: ${ALLOW_LOCAL_AI_ENDPOINTS}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      FINNHUB_RATE_LIMIT_PER_MINUTE: ${FINNHUB_RATE_LIMIT_PER_MINUTE:-60}
+      FINNHUB_RATE_LIMIT_PER_SECOND: ${FINNHUB_RATE_LIMIT_PER_SECOND:-1}
+      FMP_API_KEY: ${FMP_API_KEY:-}
+      SCHWAB_CLIENT_ID: ${SCHWAB_CLIENT_ID}
+      SCHWAB_CLIENT_SECRET: ${SCHWAB_CLIENT_SECRET}
+      SCHWAB_REDIRECT_URI: ${SCHWAB_REDIRECT_URI}
       YAHOO_FINANCE_ENABLED: ${YAHOO_FINANCE_ENABLED}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS}
       ENABLE_PRICE_MONITORING: ${ENABLE_PRICE_MONITORING}
@@ -53,7 +62,28 @@ services:
     networks:
       - trader-network
     restart: unless-stopped
-
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+  worker:
+    extends:
+      service: app
+    container_name: teejarah-worker
+    entrypoint: ["/app/worker-start.sh"]
+    environment:
+      PROCESS_ROLE: worker
+      DISABLE_BACKGROUND_JOBS: "false"
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      app:
+        condition: service_healthy
+    ports: []
+    healthcheck:
+      disable: true
+    restart: unless-stopped
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: teejarah-cloudflared

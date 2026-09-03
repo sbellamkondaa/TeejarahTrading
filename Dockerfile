@@ -89,9 +89,12 @@ COPY --from=backend-builder /prod/backend ./backend
 # Copy configuration files
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/start.sh /app/start.sh
+COPY docker/worker-start.sh /app/worker-start.sh
 COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/start.sh /app/docker-entrypoint.sh
-
+RUN chmod +x \
+    /app/start.sh \
+    /app/worker-start.sh \
+    /app/docker-entrypoint.sh
 # Create non-root user for the Node.js backend process
 # Note: nginx master process requires root to bind port 80, but worker processes
 # run as the 'nginx' user. The Node.js backend is started as 'appuser' in start.sh.
