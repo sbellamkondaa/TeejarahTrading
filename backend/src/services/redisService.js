@@ -115,7 +115,16 @@ async function subscribe(channel, handler) {
 
   return true;
 }
+async function unsubscribe(channel) {
+  const redisSubscriber = await getSubscriber();
 
+  if (!redisSubscriber) {
+    return false;
+  }
+
+  await redisSubscriber.unsubscribe(channel);
+  return true;
+}
 async function close() {
   if (client?.isOpen) await client.quit();
   if (subscriber?.isOpen) await subscriber.quit();
@@ -192,13 +201,13 @@ async function withLock(name, work, options = {}) {
   error.code = 'REDIS_LOCK_TIMEOUT';
   throw error;
 }
-
 module.exports = {
   getClient,
   getSubscriber,
   ping,
   publish,
   subscribe,
+  unsubscribe,
   close,
   acquireLock,
   releaseLock,

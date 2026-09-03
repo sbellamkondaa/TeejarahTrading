@@ -3,6 +3,7 @@ const db = require('../config/database');
 const { uuidv4 } = require('../utils/uuid');
 
 const LEGACY_NOTIFICATION_TYPES = new Set(['price_alert', 'trade_comment']);
+const redisService = require('../services/redisService');
 
 // Memoized: once the table exists it exists for the process lifetime, and the
 // polled unread-count endpoint was paying an information_schema round-trip per
@@ -34,8 +35,11 @@ const sseConnections = new Map();
 function cleanupConnection(userId, reason = 'unknown') {
   const connectionData = sseConnections.get(userId);
   if (connectionData) {
-    const { res, heartbeatInterval } = connectionData;
-
+    const {
+      res,
+      heartbeatInterval,
+      redisChannel
+    } = connectionData;
     // Clear heartbeat interval
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
@@ -49,7 +53,9 @@ function cleanupConnection(userId, reason = 'unknown') {
         // Ignore errors during cleanup
       }
     }
-
+if (redisChannel) {
+  redisService.unsubscribe(redisChannel).catch(() => false);
+}
     sseConnections.delete(userId);
     console.log(`User ${userId} connection cleaned up (reason: ${reason})`);
   }
@@ -115,7 +121,30 @@ const notificationsController = {
       }, 45000);
 
       // Store connection with heartbeat interval reference
-      sseConnections.set(userId, { res, heartbeatInterval });
+      const redisChannel = `teejarah:sse:user:${userId}`;
+
+      sseConnections.set(userId, {
+        res,
+        heartbeatInterval,
+        redisChannel
+      });
+
+      await redisService.subscribe(redisChannel, (eventData) => {
+        const currentConnection = sseConnections.get(userId);
+
+        if (
+          currentConnection &&
+          currentConnection.res === res &&
+          !res.destroyed &&
+          !res.writableEnded
+        ) {
+          try {
+            res.write(`data: ${JSON.stringify(eventData)}\\n\\n`);
+          } catch (error) {
+            cleanupConnection(userId, 'redis_sse_write_error');
+          }
+        }
+      });
 
       console.log(`User ${userId} connected to notifications stream`);
 

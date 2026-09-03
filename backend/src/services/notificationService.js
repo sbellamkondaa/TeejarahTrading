@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const NotificationPreferenceService = require('./notificationPreferenceService');
+const redisService = require('./redisService');
 
 class NotificationService {
   
