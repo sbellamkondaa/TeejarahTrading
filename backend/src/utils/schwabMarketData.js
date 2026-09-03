@@ -11,6 +11,7 @@ const db = require('../config/database');
 const encryptionService = require('../services/brokerSync/encryptionService');
 const cache = require('./cache');
 const redisCache = require('./redisCache');
+const redisService = require('../services/redisService');
 
 const SCHWAB_MARKET_DATA_BASE = 'https://api.schwabapi.com/marketdata/v1';
 const TOKEN_REFRESH_BUFFER = 5 * 60 * 1000; // 5 minutes before expiration
@@ -152,6 +153,45 @@ class SchwabMarketData {
    * @returns {Promise<object|null>} Quote data or null
    */
   async getQuote(symbol) {
+    const normalizedSymbol = symbol.toUpperCase();
+    const cacheKey = `schwab_quote:${normalizedSymbol}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const sharedCached = await redisCache
+      .get('schwab_quote', normalizedSymbol)
+      .catch(() => null);
+
+    if (sharedCached) {
+      cache.set(cacheKey, sharedCached, 30 * 1000);
+      return sharedCached;
+    }
+
+    return redisService.withLock(
+      `schwab:quote:${normalizedSymbol}`,
+      async () => {
+        const refreshedCached = await redisCache
+          .get('schwab_quote', normalizedSymbol)
+          .catch(() => null);
+
+        if (refreshedCached) {
+          cache.set(cacheKey, refreshedCached, 30 * 1000);
+          return refreshedCached;
+        }
+
+        return this.getQuoteUnlocked(normalizedSymbol);
+      },
+      {
+        waitMs: 3000,
+        ttlMs: 15000
+      }
+    );
+  }
+
+  async getQuoteUnlocked(symbol) {
     const normalizedSymbol = symbol.toUpperCase();
     const cacheKey = `schwab_quote:${normalizedSymbol}`;
     const cached = cache.get(cacheKey);
