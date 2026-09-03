@@ -28,7 +28,7 @@
                             class="text-sm text-gray-600 dark:text-gray-400 mb-4"
                         >
                             Download a complete backup of your
-                            TradeTally data including trades, diary
+                            Teejarah Trading data including trades, diary
                             entries, playbook entries, settings,
                             tags, and equity history.
                         </p>
@@ -132,7 +132,7 @@
                         <p
                             class="text-sm text-gray-600 dark:text-gray-400 mb-4"
                         >
-                            Import previously exported TradeTally
+                            Import previously exported Teejarah Trading
                             data. This will merge with your existing
                             data without duplicating trades.
                         </p>

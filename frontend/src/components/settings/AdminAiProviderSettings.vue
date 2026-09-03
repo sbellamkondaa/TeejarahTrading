@@ -70,7 +70,7 @@
                     class="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
                 >
                     Runs <code>{{ form.provider === "codex_cli" ? "codex exec" : "claude -p" }}</code>
-                    on the TradeTally backend host. All users inheriting this default share
+                    on the Teejarah Trading backend host. All users inheriting this default share
                     the host account's CLI authentication and usage limits.
                 </div>
 
@@ -114,7 +114,7 @@
                         v-if="form.provider === 'custom'"
                         class="mt-3 rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
                     >
-                        TradeTally sends user AI prompts and relevant trading data to this
+                        Teejarah Trading sends user AI prompts and relevant trading data to this
                         endpoint. Configure only a service you trust.
                     </p>
                 </div>

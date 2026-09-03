@@ -77,7 +77,7 @@
                         v-if="HOST_CLI_AI_PROVIDERS.includes(form.provider)"
                         class="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
                     >
-                        Runs the authenticated CLI installed on the TradeTally backend host.
+                        Runs the authenticated CLI installed on the Teejarah Trading backend host.
                     </div>
 
                     <div

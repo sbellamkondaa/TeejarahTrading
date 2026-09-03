@@ -3,7 +3,7 @@
     <div class="mb-8">
       <h1 class="heading-page">Public Trades</h1>
       <p class="mt-2 text-gray-600 dark:text-gray-400 max-w-3xl">
-        Explore real trades shared by the TradeTally community to study entries, exits, risk sizing, and execution outcomes across different symbols and setups.
+        Explore real trades shared by the Teejarah Trading community to study entries, exits, risk sizing, and execution outcomes across different symbols and setups.
         Public trades are useful for benchmarking ideas, reviewing strategy tags, and learning how other traders document decisions.
       </p>
       <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-3xl">
@@ -15,7 +15,7 @@
         <router-link to="/faq" class="text-primary-600 hover:text-primary-500">FAQ</router-link>
         pages.
         You can also read
-        <a href="https://tradetally.io/docs" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">Documentation</a>
+        <a href="https://journal.teejarah.com/docs" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">Documentation</a>
         and view the
         <a href="https://github.com/GeneBO98/tradetally" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">open-source repository</a>.
       </p>
@@ -355,7 +355,7 @@ async function deleteTrade(trade) {
 }
 
 onMounted(() => {
-  document.title = 'Public Trades - TradeTally Trading Journal Community'
+  document.title = 'Public Trades - Teejarah Trading Trading Journal Community'
 
   let metaDescription = document.querySelector('meta[name="description"]')
   if (!metaDescription) {
@@ -363,7 +363,7 @@ onMounted(() => {
     metaDescription.setAttribute('name', 'description')
     document.head.appendChild(metaDescription)
   }
-  metaDescription.setAttribute('content', 'Explore public trades shared by the TradeTally community. Review entries, exits, notes, tags, and performance from a free trading journal platform.')
+  metaDescription.setAttribute('content', 'Explore public trades shared by the Teejarah Trading community. Review entries, exits, notes, tags, and performance from a free trading journal platform.')
 
   let metaKeywords = document.querySelector('meta[name="keywords"]')
   if (!metaKeywords) {
@@ -371,7 +371,7 @@ onMounted(() => {
     metaKeywords.setAttribute('name', 'keywords')
     document.head.appendChild(metaKeywords)
   }
-  metaKeywords.setAttribute('content', 'public trades, shared trading journal, TradeTally community trades, free trading journal examples')
+  metaKeywords.setAttribute('content', 'public trades, shared trading journal, Teejarah Trading community trades, free trading journal examples')
 
   let canonical = document.querySelector('link[rel="canonical"]')
   if (!canonical) {
@@ -379,7 +379,7 @@ onMounted(() => {
     canonical.setAttribute('rel', 'canonical')
     document.head.appendChild(canonical)
   }
-  canonical.setAttribute('href', 'https://tradetally.io/public')
+  canonical.setAttribute('href', 'https://journal.teejarah.com/public')
 
   fetchTrades()
 })

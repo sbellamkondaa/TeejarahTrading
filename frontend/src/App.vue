@@ -40,8 +40,8 @@
             <Bars3Icon class="h-6 w-6" />
           </button>
           <router-link to="/dashboard" class="flex items-center gap-2">
-            <img src="/favicon.svg" alt="TradeTally" class="h-7 w-auto" />
-            <span class="font-semibold text-gray-900 dark:text-white">TradeTally</span>
+            <img src="/favicon.svg" alt="Teejarah Trading" class="h-7 w-auto" />
+            <span class="font-semibold text-gray-900 dark:text-white">Teejarah Trading</span>
           </router-link>
           <NotificationBell />
         </div>

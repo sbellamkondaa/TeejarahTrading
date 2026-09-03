@@ -22,7 +22,7 @@
             Match your CSV columns
           </h3>
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Tell TradeTally what each column in your file represents. We've pre-filled what we recognized — change anything that's wrong.
+            Tell Teejarah Trading what each column in your file represents. We've pre-filled what we recognized — change anything that's wrong.
           </p>
         </div>
 
@@ -32,7 +32,7 @@
             <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-3 bg-gray-50 dark:bg-gray-900/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               <div>Your column</div>
               <div>Sample value</div>
-              <div>TradeTally field</div>
+              <div>Teejarah Trading field</div>
             </div>
             <p
               v-if="isReparsing"
@@ -352,7 +352,7 @@ const supportMailtoLink = computed(() => {
     `Notes:\n`
   )
 
-  return `mailto:support@tradetally.io?subject=${subject}&body=${body}`
+  return `mailto:support@journal.teejarah.com?subject=${subject}&body=${body}`
 })
 
 function clearColumnMappings() {

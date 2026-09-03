@@ -278,7 +278,7 @@ export function usePriceAlertNotifications() {
     
     // Show browser notification if permitted
     if ('Notification' in window && Notification.permission === 'granted') {
-      const notification = new Notification(`TradeTally Alert: ${alert.symbol}`, {
+      const notification = new Notification(`Teejarah Trading Alert: ${alert.symbol}`, {
         body: alert.message,
         icon: '/favicon-32x32.png',
         tag: alert.id,

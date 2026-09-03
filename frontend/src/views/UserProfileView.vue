@@ -198,7 +198,7 @@ async function fetchProfile() {
     const response = await api.get(`/users/${route.params.username}`)
     profile.value = response.data.user
 
-    document.title = `${profile.value.fullName || profile.value.username} - Public Trading Profile | TradeTally`
+    document.title = `${profile.value.fullName || profile.value.username} - Public Trading Profile | Teejarah Trading`
 
     let metaDescription = document.querySelector('meta[name="description"]')
     if (!metaDescription) {
@@ -206,7 +206,7 @@ async function fetchProfile() {
       metaDescription.setAttribute('name', 'description')
       document.head.appendChild(metaDescription)
     }
-    metaDescription.setAttribute('content', `View public trades and trading activity shared by @${profile.value.username} on TradeTally.`)
+    metaDescription.setAttribute('content', `View public trades and trading activity shared by @${profile.value.username} on Teejarah Trading.`)
 
     let metaKeywords = document.querySelector('meta[name="keywords"]')
     if (!metaKeywords) {
@@ -214,7 +214,7 @@ async function fetchProfile() {
       metaKeywords.setAttribute('name', 'keywords')
       document.head.appendChild(metaKeywords)
     }
-    metaKeywords.setAttribute('content', 'public trader profile, shared trades, trading journal profile, TradeTally user profile')
+    metaKeywords.setAttribute('content', 'public trader profile, shared trades, trading journal profile, Teejarah Trading user profile')
 
     let canonical = document.querySelector('link[rel="canonical"]')
     if (!canonical) {
@@ -222,7 +222,7 @@ async function fetchProfile() {
       canonical.setAttribute('rel', 'canonical')
       document.head.appendChild(canonical)
     }
-    canonical.setAttribute('href', `https://tradetally.io/u/${encodeURIComponent(profile.value.username)}`)
+    canonical.setAttribute('href', `https://journal.teejarah.com/u/${encodeURIComponent(profile.value.username)}`)
   } catch (err) {
     if (err.response?.status === 404) {
       error.value = 'User not found'
@@ -260,7 +260,7 @@ async function loadData() {
 }
 
 onMounted(() => {
-  document.title = 'Public Trading Profile | TradeTally'
+  document.title = 'Public Trading Profile | Teejarah Trading'
   loadData()
 })
 </script>

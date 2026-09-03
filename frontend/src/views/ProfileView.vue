@@ -615,7 +615,7 @@
                         API Keys
                     </h3>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
-                        Generate API keys to access your TradeTally data
+                        Generate API keys to access your Teejarah Trading data
                         programmatically. Keep your keys secure and don't share
                         them.
                     </p>

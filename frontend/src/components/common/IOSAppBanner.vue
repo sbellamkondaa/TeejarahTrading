@@ -26,7 +26,7 @@
             class="h-10 w-10 rounded-lg flex-shrink-0"
           />
           <div class="min-w-0 flex-1">
-            <div class="text-sm font-semibold truncate">TradeTally</div>
+            <div class="text-sm font-semibold truncate">Teejarah Trading</div>
             <div class="text-xs text-white/70 truncate">Get the iPhone app — free</div>
           </div>
           <a

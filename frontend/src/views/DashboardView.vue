@@ -150,7 +150,7 @@
       :step="1"
       :total-steps="5"
       :next-step="2"
-      title="Welcome to TradeTally"
+      title="Welcome to Teejarah Trading"
       description="We've loaded sample trades so you can see your dashboard in action. Let's take a quick tour of the key features."
       cta-label="Next: Import Trades"
       cta-route="import"
@@ -200,7 +200,7 @@
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-sm font-medium text-primary-900 dark:text-primary-100">Get started with TradeTally</h3>
+            <h3 class="text-sm font-medium text-primary-900 dark:text-primary-100">Get started with Teejarah Trading</h3>
             <p class="mt-1 text-sm text-primary-700 dark:text-primary-300">
               Import your first trades to see your P&L, win rate, and analytics here.
             </p>

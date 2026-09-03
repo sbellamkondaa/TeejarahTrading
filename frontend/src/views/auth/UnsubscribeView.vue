@@ -2,8 +2,8 @@
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
     <div class="sm:mx-auto sm:w-full sm:max-w-md">
       <div class="flex items-center justify-center gap-2 sm:gap-3">
-        <img src="/favicon.svg?v=2" alt="TradeTally Logo" class="h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0" />
-        <span class="text-xl sm:text-2xl md:text-3xl font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap" style="font-family: 'Bebas Neue', Arial, sans-serif; letter-spacing: 0.05em;">TRADETALLY</span>
+        <img src="/favicon.svg?v=2" alt="Teejarah Trading Logo" class="h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0" />
+        <span class="text-xl sm:text-2xl md:text-3xl font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap" style="font-family: 'Bebas Neue', Arial, sans-serif; letter-spacing: 0.05em;">TEEJARAH</span>
       </div>
       <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
         Email Preferences

@@ -60,9 +60,9 @@
         </div>
       </div>
 
-      <!-- TradeTally branding -->
+      <!-- Teejarah Trading branding -->
       <div class="pt-8 text-white/40 text-sm">
-        Generated with TradeTally
+        Generated with Teejarah Trading
       </div>
     </div>
   </div>

@@ -835,7 +835,7 @@
                             class="text-sm text-gray-600 dark:text-gray-400 mb-6"
                         >
                             Access comprehensive API documentation for
-                            integrating with TradeTally programmatically.
+                            integrating with Teejarah Trading programmatically.
                         </p>
 
                         <div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -870,13 +870,13 @@
                     </div>
                 </div>
 
-                <!-- About TradeTally -->
+                <!-- About Teejarah Trading -->
                 <div class="card">
                     <div class="card-body">
                         <h3
                             class="text-lg font-medium text-gray-900 dark:text-white mb-6"
                         >
-                            About TradeTally
+                            About Teejarah Trading
                         </h3>
 
                         <div class="space-y-4">

@@ -201,7 +201,7 @@
                     :options="accounts"
                     value-key="id"
                     label-key="accountName"
-                    placeholder="Select TradeTally account"
+                    placeholder="Select Teejarah Trading account"
                   />
 
                   <div class="flex items-center gap-1">
@@ -353,13 +353,13 @@ function getTrackingModeHelp(mode) {
   if (mode === 'funding_source') {
     return {
       title: 'Use this as a funding source',
-      description: 'Money leaving this Plaid account into the linked TradeTally account should be treated as a deposit. Money coming back into this Plaid account from the linked TradeTally account should be treated as a withdrawal.'
+      description: 'Money leaving this Plaid account into the linked Teejarah Trading account should be treated as a deposit. Money coming back into this Plaid account from the linked Teejarah Trading account should be treated as a withdrawal.'
     }
   }
 
   return {
     title: 'Track this account directly',
-    description: 'Money entering this Plaid account should be treated as a deposit on the linked TradeTally account. Money leaving this Plaid account should be treated as a withdrawal.'
+    description: 'Money entering this Plaid account should be treated as a deposit on the linked Teejarah Trading account. Money leaving this Plaid account should be treated as a withdrawal.'
   }
 }
 
@@ -397,7 +397,7 @@ async function openPlaidLink(targetType) {
             targetType
           })
           await store.fetchConnections()
-          showSuccess('Plaid connected', 'Connection saved. Link the returned account to a TradeTally account to start reviewing transfers.')
+          showSuccess('Plaid connected', 'Connection saved. Link the returned account to a Teejarah Trading account to start reviewing transfers.')
           emit('refresh')
         } catch (error) {
           showError('Plaid connection failed', error.response?.data?.message || error.message || 'Unable to finish Plaid connection')
@@ -515,13 +515,13 @@ async function linkExistingAccount(plaidAccount) {
 function confirmUnlink(plaidAccount) {
   showDangerConfirmation(
     'Unlink Plaid account',
-    `Unlink ${plaidAccount.accountName || 'this Plaid account'} from ${plaidAccount.linkedAccountName || 'the TradeTally account'}? Already-approved cashflow entries will remain. New Plaid activity won't be tracked until you link it again.`,
+    `Unlink ${plaidAccount.accountName || 'this Plaid account'} from ${plaidAccount.linkedAccountName || 'the Teejarah Trading account'}? Already-approved cashflow entries will remain. New Plaid activity won't be tracked until you link it again.`,
     async () => {
       linkingAccountId.value = plaidAccount.id
       try {
         await store.unlinkPlaidAccount(plaidAccount.id)
         selectedAccountIds[plaidAccount.id] = ''
-        showSuccess('Plaid account unlinked', 'This account no longer feeds into a TradeTally account.')
+        showSuccess('Plaid account unlinked', 'This account no longer feeds into a Teejarah Trading account.')
         await refreshGlobalAccountFilter({ force: true })
         emit('refresh')
       } catch (error) {

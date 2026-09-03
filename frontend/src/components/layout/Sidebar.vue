@@ -35,9 +35,9 @@
         class="flex min-w-0 flex-1 items-center gap-2.5"
         :class="{ 'flex-none justify-center': isCollapsed }"
       >
-        <img src="/favicon.svg" alt="TradeTally" class="h-8 w-auto shrink-0" />
+        <img src="/favicon.svg" alt="Teejarah Trading" class="h-8 w-auto shrink-0" />
         <div v-if="!isCollapsed" class="min-w-0 flex-1">
-          <div class="truncate text-sm font-semibold text-gray-900 dark:text-white">TradeTally</div>
+          <div class="truncate text-sm font-semibold text-gray-900 dark:text-white">Teejarah Trading</div>
           <div class="truncate text-xs text-gray-500 dark:text-gray-500">
             Trading Journal
           </div>
@@ -495,7 +495,7 @@ const navItems = computed(() => {
         { name: 'Account & Cashflow', to: '/cashflow', route: 'cashflow' },
         { name: 'Leaderboard', to: '/leaderboard', route: 'leaderboard' },
         { name: 'Public Trades', to: '/public', route: 'public-trades' },
-        { name: 'Community Forum', href: 'https://tradetally.io/forum', external: true }
+        { name: 'Community Forum', href: 'https://journal.teejarah.com/forum', external: true }
       ]
     },
     { name: 'Trades', icon: ChartBarSquareIcon, to: '/trades', route: 'trades' },

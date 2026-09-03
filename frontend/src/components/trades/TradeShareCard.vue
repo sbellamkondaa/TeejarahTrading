@@ -249,7 +249,7 @@ function roundedRect(ctx, x, y, w, h, r) {
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
-// The real TradeTally logo mark, loaded once. Same-origin asset, so the
+// The real Teejarah Trading logo mark, loaded once. Same-origin asset, so the
 // canvas stays untainted and exportable.
 let logoPromise = null
 function loadLogo() {
@@ -316,7 +316,7 @@ function draw(logo) {
   ctx.fillStyle = COLORS.textPrimary
   ctx.font = `600 30px ${FONT}`
   ctx.textBaseline = 'alphabetic'
-  ctx.fillText('TradeTally', PAD + logoSize + 14, baseY - 2)
+  ctx.fillText('Teejarah Trading', PAD + logoSize + 14, baseY - 2)
 
   // Date / status, top right. Open positions are a point-in-time snapshot.
   ctx.font = `400 24px ${FONT}`
@@ -432,10 +432,10 @@ function draw(logo) {
 
   ctx.fillStyle = COLORS.textMuted
   ctx.font = `500 24px ${FONT}`
-  ctx.fillText('Journaled with TradeTally', PAD, CARD_HEIGHT - 40)
+  ctx.fillText('Journaled with Teejarah Trading', PAD, CARD_HEIGHT - 40)
   ctx.textAlign = 'right'
   ctx.fillStyle = COLORS.textSecondary
-  ctx.fillText('tradetally.io', CARD_WIDTH - PAD, CARD_HEIGHT - 40)
+  ctx.fillText('journal.teejarah.com', CARD_WIDTH - PAD, CARD_HEIGHT - 40)
   ctx.textAlign = 'left'
 }
 

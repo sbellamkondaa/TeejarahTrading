@@ -81,8 +81,8 @@
                     class="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
                 >
                     Runs <code>{{ form.provider === "codex_cli" ? "codex exec" : "claude -p" }}</code>
-                    on the TradeTally backend host using its saved CLI authentication.
-                    The executable must be installed and authenticated for the account running TradeTally.
+                    on the Teejarah Trading backend host using its saved CLI authentication.
+                    The executable must be installed and authenticated for the account running Teejarah Trading.
                 </div>
 
                 <div
@@ -120,7 +120,7 @@
                         v-if="form.provider === 'custom'"
                         class="mt-3 rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
                     >
-                        TradeTally sends AI prompts and relevant trading data to this endpoint.
+                        Teejarah Trading sends AI prompts and relevant trading data to this endpoint.
                         Use a service you trust.
                     </p>
                 </div>

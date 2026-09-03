@@ -7,7 +7,7 @@
         <div>
           <h1 class="heading-page">OAuth2 Applications</h1>
           <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Manage OAuth2 clients that can authenticate users via TradeTally
+            Manage OAuth2 clients that can authenticate users via Teejarah Trading
           </p>
         </div>
         <button @click="showCreateModal = true" class="btn-primary">

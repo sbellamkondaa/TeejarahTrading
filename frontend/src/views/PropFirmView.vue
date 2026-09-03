@@ -23,7 +23,7 @@
       <ShieldCheckIcon class="mx-auto h-12 w-12 text-gray-400" />
       <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No rule profiles yet</h3>
       <p class="mt-1 mx-auto max-w-md text-sm text-gray-500 dark:text-gray-400">
-        Attach your prop firm's rules to a trading account and TradeTally will track
+        Attach your prop firm's rules to a trading account and Teejarah Trading will track
         your headroom against daily loss limits, drawdown, and profit targets.
       </p>
       <div class="mt-6">

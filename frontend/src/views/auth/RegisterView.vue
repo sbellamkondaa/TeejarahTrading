@@ -17,8 +17,8 @@
     <div class="max-w-md w-full space-y-8">
       <div>
         <div class="flex items-center justify-center mb-6 gap-2 sm:gap-3">
-          <img src="/favicon.svg?v=2" alt="TradeTally Logo" class="h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0" />
-          <span class="text-xl sm:text-2xl md:text-3xl font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap" style="font-family: 'Bebas Neue', Arial, sans-serif; letter-spacing: 0.05em;">DOMINATE WITH DATA</span>
+          <img src="/favicon.svg?v=2" alt="Teejarah Trading Logo" class="h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0" />
+          <span class="text-xl sm:text-2xl md:text-3xl font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap" style="font-family: 'Bebas Neue', Arial, sans-serif; letter-spacing: 0.05em;">TRADE WITH CLARITY</span>
         </div>
         <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
           Create your account
@@ -92,10 +92,10 @@
           </div>
           <div class="ml-3 text-sm">
             <label for="marketing_consent" class="text-gray-700 dark:text-gray-300">
-              I agree to receive marketing and promotional emails about TradeTally features, tips, and special offers.
+              I agree to receive marketing and promotional emails about Teejarah Trading features, tips, and special offers.
             </label>
             <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              After opting in, check your spam folder and mark TradeTally emails as trusted so updates reach your inbox.
+              After opting in, check your spam folder and mark Teejarah Trading emails as trusted so updates reach your inbox.
             </p>
           </div>
         </div>

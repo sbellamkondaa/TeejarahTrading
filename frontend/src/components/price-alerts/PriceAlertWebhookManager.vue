@@ -219,7 +219,7 @@
                                         Custom Headers
                                     </h4>
                                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                        Optional headers for your custom endpoint. TradeTally still signs the request body.
+                                        Optional headers for your custom endpoint. Teejarah Trading still signs the request body.
                                     </p>
                                 </div>
                                 <button type="button" @click="addHeaderRow" class="btn-secondary text-sm">

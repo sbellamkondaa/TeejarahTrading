@@ -50,7 +50,7 @@ export default defineConfig(({ command, mode }) => {
     '127.0.0.1',
     'localhost',
     '[::1]',
-    'dev.tradetally.io',
+    'dev.journal.teejarah.com',
     env.VITE_DEV_HOST,
     ...configuredAllowedHosts
   ].filter(Boolean)))

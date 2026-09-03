@@ -138,7 +138,7 @@
           <div class="max-w-2xl">
             <h2 class="heading-section">Know your own risk, not just the market's</h2>
             <p class="mt-2 text-gray-600 dark:text-gray-400">
-              TradeTally is a free, open-source trading journal with behavioral analytics: revenge-trading detection,
+              Teejarah Trading is a free, open-source trading journal with behavioral analytics: revenge-trading detection,
               R-multiple tracking, and broker sync for Schwab, IBKR, and more. These indicators are built into the dashboard.
             </p>
           </div>
@@ -313,7 +313,7 @@ async function fetchIndicators() {
 }
 
 onMounted(() => {
-  document.title = 'Market Risk Indicators: Shiller CAPE, Buffett Indicator, VIX | TradeTally'
+  document.title = 'Market Risk Indicators: Shiller CAPE, Buffett Indicator, VIX | Teejarah Trading'
   setMeta('description', 'Live stock market risk dashboard: Shiller CAPE ratio, Buffett Indicator, Tobin\'s Q, 10y-2y yield curve, S&P 500 vs M2, VIX, and high-yield credit spreads, updated daily from FRED data.')
   setMeta('keywords', 'market risk indicators, shiller cape ratio today, buffett indicator today, tobins q ratio, yield curve inversion, vix index, high yield credit spread, stock market valuation')
 
@@ -323,7 +323,7 @@ onMounted(() => {
     canonical.setAttribute('rel', 'canonical')
     document.head.appendChild(canonical)
   }
-  canonical.setAttribute('href', 'https://tradetally.io/market-risk')
+  canonical.setAttribute('href', 'https://journal.teejarah.com/market-risk')
 
   setJsonLd()
   fetchIndicators()

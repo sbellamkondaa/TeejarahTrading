@@ -1470,7 +1470,7 @@ const brokerGuides = {
     badge: 'Best first try',
     steps: [
       'Export a CSV from your broker history or trade activity page.',
-      'Upload the file here and let TradeTally inspect the headers.',
+      'Upload the file here and let Teejarah Trading inspect the headers.',
       'If the format is unfamiliar, match Symbol, Quantity, and Price in the guided mapper.'
     ],
     warning: 'Avoid account summary, positions, or tax statement exports. Those usually do not include execution-level trade rows.'
@@ -1483,7 +1483,7 @@ const brokerGuides = {
       'Make sure the file has columns for symbol, quantity, price, and ideally date or P&L.',
       'The mapper will save your column choices so future imports are faster.'
     ],
-    warning: 'If quantity is always positive, include a side/action column so TradeTally can tell long and short trades apart.'
+    warning: 'If quantity is always positive, include a side/action column so Teejarah Trading can tell long and short trades apart.'
   },
   schwab: {
     title: 'Charles Schwab',
@@ -1500,7 +1500,7 @@ const brokerGuides = {
     badge: 'Supported',
     steps: [
       'Export account statement trade activity as CSV.',
-      'Keep the header rows intact; TradeTally looks for date, time, type, ref, and description fields.',
+      'Keep the header rows intact; Teejarah Trading looks for date, time, type, ref, and description fields.',
       'If Auto-Detect flags it, choose the detected thinkorswim format.'
     ],
     warning: 'Do not paste rows into a new spreadsheet before importing; spreadsheet tools often change dates and symbols.'
@@ -1541,7 +1541,7 @@ const brokerGuides = {
     steps: [
       'Export TradingView order/fill history or performance data as CSV.',
       'Keep order IDs, side, symbol, fill price, and status columns in the file.',
-      'Use Auto-Detect first; TradeTally supports multiple TradingView layouts.'
+      'Use Auto-Detect first; Teejarah Trading supports multiple TradingView layouts.'
     ],
     warning: 'If your file only contains equity curve metrics, export fills/orders instead.'
   },
@@ -1571,7 +1571,7 @@ const brokerGuides = {
     steps: [
       'Export account history as CSV from Accounts > History.',
       'Keep the original headers, especially symbol, action, trade date, CUSIP, and record type.',
-      'Use Auto-Detect first. TradeTally will ignore non-trade cash activity rows.'
+      'Use Auto-Detect first. Teejarah Trading will ignore non-trade cash activity rows.'
     ],
     warning: 'The Firstrade parser is in Alpha — review imported trades and report any incorrect P&L or symbol mappings via GitHub Issues. History exports can include wires, interest, dividends, and other cash activity; upload the raw CSV and let the importer filter them out.'
   },
@@ -3277,7 +3277,7 @@ function pollImportStatus(importId) {
             `The import completed but no trades were found.\n\nSuggestions:\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
             {
               confirmText: 'OK',
-              linkUrl: 'https://tradetally.io/docs/usage/importing-trades/#supported-brokers',
+              linkUrl: 'https://journal.teejarah.com/docs/usage/importing-trades/#supported-brokers',
               linkText: 'View Documentation'
             }
           )

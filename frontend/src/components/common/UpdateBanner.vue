@@ -16,7 +16,7 @@
           <div class="flex items-center space-x-2">
             <ArrowPathIcon class="h-5 w-5" />
             <span class="text-sm font-medium">
-              A new version of TradeTally is available (v{{ latestVersion }})
+              A new version of Teejarah Trading is available (v{{ latestVersion }})
             </span>
           </div>
           <div class="flex items-center space-x-3">

@@ -31,7 +31,7 @@
                     Self-Hosted Instance
                 </h3>
                 <p class="text-gray-600 dark:text-gray-400">
-                    This is a self-hosted instance of TradeTally. Billing and
+                    This is a self-hosted instance of Teejarah Trading. Billing and
                     subscriptions are not applicable.
                 </p>
             </div>
@@ -311,7 +311,7 @@
                             </h4>
                             <p class="text-green-700 dark:text-green-300">
                                 Your subscription has been successfully
-                                activated. Welcome to TradeTally Pro!
+                                activated. Welcome to Teejarah Trading Pro!
                             </p>
                             <p
                                 v-if="redirectMessage"

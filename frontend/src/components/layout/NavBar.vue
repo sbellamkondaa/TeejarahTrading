@@ -4,8 +4,8 @@
       <div class="flex justify-between h-16">
         <div class="flex items-center">
           <router-link :to="authStore.isAuthenticated ? '/dashboard' : '/'" class="flex items-center px-2 py-2 text-xl font-bold text-primary-600">
-            <img src="/favicon.svg" alt="TradeTally Logo" class="h-8 w-auto mr-2" />
-            TradeTally
+            <img src="/favicon.svg" alt="Teejarah Trading Logo" class="h-8 w-auto mr-2" />
+            Teejarah Trading
           </router-link>
 
           <div class="hidden sm:ml-12 sm:flex sm:space-x-2">
@@ -355,7 +355,7 @@ const baseNavigation = [
       },
       {
         name: 'Community Forum',
-        href: 'https://tradetally.io/forum',
+        href: 'https://journal.teejarah.com/forum',
         external: true,
         description: 'Discuss strategies and connect with fellow traders'
       }

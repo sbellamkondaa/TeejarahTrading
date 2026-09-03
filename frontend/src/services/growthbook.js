@@ -3,7 +3,7 @@ import { useAnalytics } from '@/composables/useAnalytics'
 
 const ANON_ID_STORAGE_KEY = 'growthbook_anonymous_id'
 const GROWTHBOOK_ENABLED = import.meta.env.VITE_GROWTHBOOK_ENABLED === 'true'
-const GROWTHBOOK_API_HOST = import.meta.env.VITE_GROWTHBOOK_API_HOST || 'https://growthbook-api.tradetally.io'
+const GROWTHBOOK_API_HOST = import.meta.env.VITE_GROWTHBOOK_API_HOST || 'https://growthbook-api.journal.teejarah.com'
 const GROWTHBOOK_CLIENT_KEY = import.meta.env.VITE_GROWTHBOOK_CLIENT_KEY || ''
 const GROWTHBOOK_DEV_MODE = import.meta.env.VITE_GROWTHBOOK_DEV_MODE === 'true' || import.meta.env.DEV
 
