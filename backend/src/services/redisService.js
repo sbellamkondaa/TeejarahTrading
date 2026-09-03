@@ -126,11 +126,81 @@ async function close() {
   subscriberConnectPromise = null;
 }
 
+
+async function acquireLock(name, token, ttlMs = 10000) {
+  const redisClient = await getClient();
+
+  if (!redisClient) {
+    return false;
+  }
+
+  const key = `teejarah:lock:${name}`;
+  const result = await redisClient.set(key, token, {
+    NX: true,
+    PX: ttlMs
+  });
+
+  return result === 'OK';
+}
+
+async function releaseLock(name, token) {
+  const redisClient = await getClient();
+
+  if (!redisClient) {
+    return false;
+  }
+
+  const key = `teejarah:lock:${name}`;
+
+  const script = `
+    if redis.call("get", KEYS[1]) == ARGV[1] then
+      return redis.call("del", KEYS[1])
+    else
+      return 0
+    end
+  `;
+
+  const result = await redisClient.eval(script, {
+    keys: [key],
+    arguments: [token]
+  });
+
+  return result === 1;
+}
+
+async function withLock(name, work, options = {}) {
+  const waitMs = options.waitMs ?? 2000;
+  const ttlMs = options.ttlMs ?? 10000;
+  const token = `${process.pid}-${Date.now()}-${Math.random()}`;
+  const deadline = Date.now() + waitMs;
+
+  while (Date.now() < deadline) {
+    const acquired = await acquireLock(name, token, ttlMs);
+
+    if (acquired) {
+      try {
+        return await work();
+      } finally {
+        await releaseLock(name, token).catch(() => false);
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  const error = new Error(`Redis lock timeout: ${name}`);
+  error.code = 'REDIS_LOCK_TIMEOUT';
+  throw error;
+}
+
 module.exports = {
   getClient,
   getSubscriber,
   ping,
   publish,
   subscribe,
-  close
+  close,
+  acquireLock,
+  releaseLock,
+  withLock
 };
