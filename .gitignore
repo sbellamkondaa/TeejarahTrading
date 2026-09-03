@@ -142,3 +142,4 @@ CLAUDE.md
 AGENTS.md
 backend/.envy
 zap.yaml
+.pnpm-store/
