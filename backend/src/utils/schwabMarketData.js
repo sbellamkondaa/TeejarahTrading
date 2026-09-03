@@ -10,6 +10,7 @@ const axios = require('axios');
 const db = require('../config/database');
 const encryptionService = require('../services/brokerSync/encryptionService');
 const cache = require('./cache');
+const redisCache = require('./redisCache');
 
 const SCHWAB_MARKET_DATA_BASE = 'https://api.schwabapi.com/marketdata/v1';
 const TOKEN_REFRESH_BUFFER = 5 * 60 * 1000; // 5 minutes before expiration
@@ -151,10 +152,20 @@ class SchwabMarketData {
    * @returns {Promise<object|null>} Quote data or null
    */
   async getQuote(symbol) {
-    const cacheKey = `schwab_quote:${symbol}`;
+    const normalizedSymbol = symbol.toUpperCase();
+    const cacheKey = `schwab_quote:${normalizedSymbol}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return cached;
+    }
+
+    const sharedCached = await redisCache
+      .get('schwab_quote', normalizedSymbol)
+      .catch(() => null);
+
+    if (sharedCached) {
+      cache.set(cacheKey, sharedCached, 30 * 1000);
+      return sharedCached;
     }
 
     const connection = await this.getActiveConnection();
@@ -174,7 +185,7 @@ class SchwabMarketData {
         `${SCHWAB_MARKET_DATA_BASE}/quotes`,
         {
           params: {
-            symbols: symbol.toUpperCase(),
+            symbols: normalizedSymbol,
             fields: 'quote'
           },
           headers: {
@@ -189,7 +200,7 @@ class SchwabMarketData {
       }
 
       const data = response.data;
-      const symbolData = data[symbol.toUpperCase()];
+      const symbolData = data[normalizedSymbol];
 
       if (!symbolData || !symbolData.quote) {
         console.log(`[SCHWAB-MARKET] No quote data for ${symbol}`);
@@ -223,6 +234,10 @@ class SchwabMarketData {
 
       // Cache for 30 seconds (real-time data shouldn't be cached too long)
       cache.set(cacheKey, result, 30 * 1000);
+
+      await redisCache
+        .set('schwab_quote', normalizedSymbol, result, 30 * 1000)
+        .catch(() => null);
 
       return result;
     } catch (error) {
@@ -419,10 +434,20 @@ class SchwabMarketData {
    * @returns {Promise<object[]|null>} Array of OHLCV candles or null
    */
   async getPriceHistory(symbol, days = 30) {
-    const cacheKey = `schwab_history:${symbol}:${days}`;
+    const normalizedSymbol = symbol.toUpperCase();
+    const cacheKey = `schwab_history:${normalizedSymbol}:${days}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return cached;
+    }
+
+    const sharedCached = await redisCache
+      .get('schwab_history', `${normalizedSymbol}:${days}`)
+      .catch(() => null);
+
+    if (sharedCached) {
+      cache.set(cacheKey, sharedCached, 5 * 60 * 1000);
+      return sharedCached;
     }
 
     const connection = await this.getActiveConnection();
@@ -443,11 +468,14 @@ class SchwabMarketData {
         `${SCHWAB_MARKET_DATA_BASE}/pricehistory`,
         {
           params: {
-            symbol: symbol.toUpperCase(),
-            periodType: 'day',
-            period: days,
+            symbol: normalizedSymbol,
+            periodType: 'year',
             frequencyType: 'daily',
-            frequency: 1
+            frequency: 1,
+            startDate: startDate,
+            endDate: endDate,
+            needExtendedHoursData: false,
+            needPreviousClose: false
           },
           headers: {
             Authorization: `Bearer ${accessToken}`
@@ -469,6 +497,15 @@ class SchwabMarketData {
 
       // Cache for 5 minutes
       cache.set(cacheKey, result, 5 * 60 * 1000);
+
+      await redisCache
+        .set(
+          'schwab_history',
+          `${normalizedSymbol}:${days}`,
+          result,
+          5 * 60 * 1000
+        )
+        .catch(() => null);
 
       return result;
     } catch (error) {
