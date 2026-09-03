@@ -476,6 +476,45 @@ class SchwabMarketData {
   async getPriceHistory(symbol, days = 30) {
     const normalizedSymbol = symbol.toUpperCase();
     const cacheKey = `schwab_history:${normalizedSymbol}:${days}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const sharedCached = await redisCache
+      .get('schwab_history', `${normalizedSymbol}:${days}`)
+      .catch(() => null);
+
+    if (sharedCached) {
+      cache.set(cacheKey, sharedCached, 5 * 60 * 1000);
+      return sharedCached;
+    }
+
+    return redisService.withLock(
+      `schwab:history:${normalizedSymbol}:${days}`,
+      async () => {
+        const refreshedCached = await redisCache
+          .get('schwab_history', `${normalizedSymbol}:${days}`)
+          .catch(() => null);
+
+        if (refreshedCached) {
+          cache.set(cacheKey, refreshedCached, 5 * 60 * 1000);
+          return refreshedCached;
+        }
+
+        return this.getPriceHistoryUnlocked(normalizedSymbol, days);
+      },
+      {
+        waitMs: 5000,
+        ttlMs: 30000
+      }
+    );
+  }
+
+  async getPriceHistoryUnlocked(symbol, days = 30) {
+    const normalizedSymbol = symbol.toUpperCase();
+    const cacheKey = `schwab_history:${normalizedSymbol}:${days}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       return cached;
