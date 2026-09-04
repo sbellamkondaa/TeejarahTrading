@@ -628,8 +628,12 @@ describe('market.controller', () => {
     });
 
     test('returns indices from batch quote', async () => {
-      schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
-      // First getQuotes call: mover symbols (empty) -> returns {}
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'TST', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+      // First getQuotes call: mover symbols -> returns {}
       finnhub.getQuotes.mockResolvedValueOnce({});
       // Second getQuotes call: index symbols -> returns index data
       finnhub.getQuotes.mockResolvedValueOnce({

@@ -414,7 +414,7 @@ async function enrichWithCatalysts(symbols) {
 async function getMovers(req, res) {
   const category = parseToken(req.query.category, 16);
   const validCategories = ['gainers', 'losers', 'active'];
-  const categoryFilter = validCategories.includes(category)
+  const categoryFilter = validCategories.includes(category ? category.toLowerCase() : '')
     ? category.toLowerCase()
     : 'active';
 
