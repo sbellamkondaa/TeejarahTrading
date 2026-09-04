@@ -7,7 +7,6 @@ jest.mock('../../src/middleware/auth', () => {
     err.status = 401;
     next(err);
   };
-  console.error('MOCK FACTORY: typeof authenticate =', typeof authenticate);
   return { authenticate };
 });
 
@@ -21,11 +20,14 @@ jest.mock('../../src/controllers/market.controller', () => ({
 
 // Require auth first so its mock is materialized before market.routes.js
 // calls router.use(authenticate) at module load.
-const { authenticate } = require('../../src/middleware/auth');
+const auth = require('../../src/middleware/auth');
+console.error('TEST: typeof auth.authenticate =', typeof auth.authenticate);
+
 // Defer requiring market.routes until inside describe so the auth mock is
 // fully resolved (jest hoists jest.mock, but requiring auth first ensures the
 // mocked export is a real function reference before router.use binds it).
 const marketRoutes = require('../../src/routes/market.routes');
+const { authenticate } = auth;
 
 describe('market routes authentication', () => {
   test('router has a router-level authenticate layer as its first middleware', () => {
