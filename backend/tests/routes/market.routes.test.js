@@ -1,10 +1,11 @@
-jest.mock('../../src/middleware/auth', () => ({
-  authenticate: jest.fn((req, _res, next) => {
+jest.mock('../../src/middleware/auth', () => {
+  const auth = (req, res, next) => {
     const err = new Error('Please authenticate');
     err.status = 401;
     next(err);
-  })
-}));
+  };
+  return { authenticate: auth };
+});
 jest.mock('../../src/controllers/market.controller', () => ({
   getIndices: jest.fn(),
   getHalts: jest.fn(),
