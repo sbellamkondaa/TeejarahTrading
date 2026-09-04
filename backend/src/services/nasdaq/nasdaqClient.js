@@ -1,15 +1,20 @@
 const axios = require('axios');
 const crypto = require('crypto');
+const cheerio = require('cheerio');
 const db = require('../../config/database');
 const logger = require('../../utils/logger');
+const { localToUTC } = require('../../utils/timezone');
 
-const NASDAQ_HALTS_URL = 'https://www.nasdaqtrader.com/Trader.aspx?id=TradeHalt';
+const NASDAQ_HALTS_URL = 'https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts';
+const MARKET_TIMEZONE = 'America/New_York';
 const DEFAULT_USER_AGENT = 'TeejarahTrading [email protected]';
 const DEFAULT_RATE_PER_SECOND = 1;
 const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_RETRIES = 4;
 const CACHE_NAMESPACE = 'nasdaq_halts';
 const CACHE_KEY = 'recent';
+
+const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 function getUserAgent() {
   return process.env.NASDAQ_USER_AGENT || DEFAULT_USER_AGENT;
@@ -36,20 +41,28 @@ async function waitForRateSlot() {
   lastRequestAt = Date.now();
 }
 
+function buildFeedUrl(haltDate) {
+  if (!haltDate) return NASDAQ_HALTS_URL;
+  const digits = String(haltDate).replace(/\D/g, '');
+  return NASDAQ_HALTS_URL + '&haltdate=' + digits;
+}
+
 async function fetchNasdaqHaltsPage(options = {}) {
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
+  const url = buildFeedUrl(options.haltDate);
+  const headers = {
+    'User-Agent': getUserAgent(),
+    'Accept': 'application/rss+xml, application/xml, text/xml',
+    'Accept-Encoding': 'gzip, deflate'
+  };
 
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     await waitForRateSlot();
 
     try {
-      const response = await axios.get(NASDAQ_HALTS_URL, {
+      const response = await axios.get(url, {
         timeout: options.timeout ?? DEFAULT_TIMEOUT_MS,
-        headers: {
-          'User-Agent': getUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Encoding': 'gzip, deflate'
-        },
+        headers,
         responseType: 'text',
         validateStatus: (status) => status >= 200 && status < 400
       });
@@ -57,8 +70,8 @@ async function fetchNasdaqHaltsPage(options = {}) {
       return {
         ok: true,
         status: response.status,
-        html: response.data,
-        url: NASDAQ_HALTS_URL
+        xml: response.data,
+        url
       };
     } catch (error) {
       const status = error.response?.status;
@@ -75,12 +88,12 @@ async function fetchNasdaqHaltsPage(options = {}) {
         ok: false,
         status: status || 0,
         error: error.message,
-        url: NASDAQ_HALTS_URL
+        url
       };
     }
   }
 
-  return { ok: false, status: 0, error: 'max retries exceeded' };
+  return { ok: false, status: 0, error: 'max retries exceeded', url };
 }
 
 function hashPayload(payload) {
@@ -88,77 +101,132 @@ function hashPayload(payload) {
   return crypto.createHash('sha256').update(serialized).digest('hex');
 }
 
-function parseHaltDateString(text) {
-  if (!text) return null;
-  const cleaned = String(text).trim();
-  if (!cleaned) return null;
-
-  const match = cleaned.match(/(\d{1,2}:\d{2}:\d{2})\s*(AM|PM)?/i);
-  if (match) {
-    const today = new Date();
-    const datePart = today.toISOString().slice(0, 10);
-    const timePart = match[1];
-    const ampm = match[2] ? match[2].toUpperCase() : '';
-    const iso = new Date(datePart + 'T' + timePart + ' ' + ampm + ' EST');
-    if (!isNaN(iso.getTime())) {
-      return iso.toISOString();
-    }
-  }
-
-  const fallback = new Date(cleaned);
-  if (!isNaN(fallback.getTime())) {
-    return fallback.toISOString();
-  }
-  return null;
+function cleanText(value) {
+  if (value == null) return null;
+  const s = String(value).trim().replace(/\s+/g, ' ');
+  return s === '' ? null : s;
 }
 
-function parseNasdaqHaltsHtml(html) {
-  if (!html || typeof html !== 'string') return [];
+function cleanTimeToken(value) {
+  if (value == null) return null;
+  // Strip ALL whitespace. Historical Nasdaq values can embed large runs of
+  // whitespace between the time and fractional seconds, e.g.
+  // "09:30:54                      .916" -> "09:30:54.916"
+  const s = String(value).replace(/\s+/g, '');
+  return s === '' ? null : s;
+}
+
+function localName(tagName) {
+  if (!tagName) return '';
+  const idx = tagName.indexOf(':');
+  return idx >= 0 ? tagName.slice(idx + 1) : tagName;
+}
+
+function extractItemFields($, $item) {
+  const fields = {};
+  $item.children().each((_, el) => {
+    const name = localName(el.tagName || el.name);
+    if (!name || fields[name] !== undefined) return;
+    fields[name] = $(el).text();
+  });
+  return fields;
+}
+
+function getField(fields, ...names) {
+  for (const n of names) {
+    if (fields[n] !== undefined) return fields[n];
+  }
+  return undefined;
+}
+
+function normalizeUsDate(value) {
+  const s = cleanText(value);
+  if (!s) return null;
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  return m[3] + '-' + m[1] + '-' + m[2];
+}
+
+function buildMarketTimestamp(dateStr, timeStr) {
+  const date = normalizeUsDate(dateStr);
+  if (!date) return null;
+  const time = cleanTimeToken(timeStr);
+  if (!time) return null;
+
+  // Drop fractional seconds for the naive->UTC conversion (localToUTC handles
+  // integer-second precision). Millisecond precision is preserved in raw_payload.
+  const integerTime = time.replace(/\.\d+$/, '');
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(integerTime)) return null;
+
+  const naive = date + 'T' + integerTime;
+  return localToUTC(naive, MARKET_TIMEZONE);
+}
+
+function parseNasdaqHaltsRss(xml) {
+  if (!xml || typeof xml !== 'string') return [];
+
+  let $;
+  try {
+    $ = cheerio.load(xml, { xml: true });
+  } catch (error) {
+    logger.error('[NASDAQ-HALTS] RSS parse failed: ' + error.message);
+    return [];
+  }
 
   const halts = [];
-  const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let match;
 
-  while ((match = rowPattern.exec(html)) !== null) {
-    const rowHtml = match[1];
-    const cells = [];
-    const cellPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let cellMatch;
-    while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
-      const raw = cellMatch[1]
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .trim();
-      cells.push(raw);
-    }
-    if (cells.length < 2) continue;
+  $('item').each((_, el) => {
+    const $item = $(el);
+    const fields = extractItemFields($, $item);
 
-    const symbol = cells[0].toUpperCase();
-    if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) continue;
+    const issueSymbol = cleanText(getField(fields, 'IssueSymbol'));
+    const issueName = cleanText(getField(fields, 'IssueName'));
+    const market = cleanText(getField(fields, 'Market', 'Mkt'));
+    const reasonCode = cleanText(getField(fields, 'ReasonCode'));
+    const pauseThresholdPrice = cleanText(getField(fields, 'PauseThresholdPrice'));
+    const haltDate = getField(fields, 'HaltDate');
+    const haltTime = getField(fields, 'HaltTime');
+    const resumptionDate = getField(fields, 'ResumptionDate');
+    const resumptionQuoteTime = cleanTimeToken(getField(fields, 'ResumptionQuoteTime'));
+    const resumptionTradeTime = cleanTimeToken(getField(fields, 'ResumptionTradeTime'));
 
-    const exchange = cells[1] || null;
-    const reasonRaw = cells[2] || '';
-    const haltedAtText = cells[3] || '';
-    const resumeAtText = cells[4] || '';
+    if (!issueSymbol) return;
+    const symbol = issueSymbol.toUpperCase();
+    if (!SYMBOL_PATTERN.test(symbol)) return;
 
-    const haltedAt = parseHaltDateString(haltedAtText);
-    if (!haltedAt) continue;
+    const haltedAt = buildMarketTimestamp(haltDate, haltTime);
+    if (!haltedAt) return;
 
-    const isResumption = resumeAtText.length > 0;
-    const resumeAt = isResumption ? parseHaltDateString(resumeAtText) : null;
+    const reasonCodeNorm = reasonCode || null;
+    if (!reasonCodeNorm) return;
+
+    const resumeAt = buildMarketTimestamp(resumptionDate, resumptionTradeTime);
+    const isResumption = Boolean(resumeAt);
+
+    const raw = {
+      IssueSymbol: issueSymbol,
+      IssueName: issueName || null,
+      Market: market || null,
+      ReasonCode: reasonCodeNorm,
+      PauseThresholdPrice: pauseThresholdPrice || null,
+      HaltDate: cleanText(haltDate) || null,
+      HaltTime: cleanTimeToken(haltTime) || null,
+      ResumptionDate: cleanText(resumptionDate) || null,
+      ResumptionQuoteTime: resumptionQuoteTime || null,
+      ResumptionTradeTime: resumptionTradeTime || null
+    };
 
     halts.push({
       symbol,
-      halt_type: isResumption ? 'Resume' : 'Halt',
-      reason: reasonRaw || null,
-      exchange: exchange || null,
+      halt_type: reasonCodeNorm,
+      reason: reasonCodeNorm,
+      exchange: market || null,
       halted_at: haltedAt,
       resume_at: resumeAt,
       is_resumption: isResumption,
-      raw_row: cells
+      raw
     });
-  }
+  });
 
   return halts;
 }
@@ -171,7 +239,7 @@ async function ingestHaltEvent(halt) {
     exchange: halt.exchange
   });
 
-  await db.query(
+  const result = await db.query(
     `INSERT INTO market_halts (
       symbol, halt_type, reason, exchange,
       halted_at, resume_at, is_resumption,
@@ -198,17 +266,18 @@ async function ingestHaltEvent(halt) {
     ]
   );
 
-  return { inserted: true, sourceHash };
+  const inserted = result.rows.length > 0 ? Boolean(result.rows[0].inserted) : false;
+  return { inserted, sourceHash };
 }
 
-async function fetchAndIngestNasdaqHalts() {
-  const result = await fetchNasdaqHaltsPage();
+async function fetchAndIngestNasdaqHalts(options = {}) {
+  const result = await fetchNasdaqHaltsPage(options);
 
   if (!result.ok) {
     return { ok: false, error: result.error || result.status };
   }
 
-  const events = parseNasdaqHaltsHtml(result.html);
+  const events = parseNasdaqHaltsRss(result.xml);
 
   let inserted = 0;
   let skipped = 0;
@@ -238,7 +307,7 @@ async function fetchAndIngestNasdaqHalts() {
 module.exports = {
   NASDAQ_HALTS_URL,
   fetchNasdaqHaltsPage,
-  parseNasdaqHaltsHtml,
+  parseNasdaqHaltsRss,
   ingestHaltEvent,
   fetchAndIngestNasdaqHalts,
   hashPayload,
