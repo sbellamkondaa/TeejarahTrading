@@ -505,6 +505,7 @@ const navItems = computed(() => {
       icon: ChartPieIcon,
       items: [
         { name: 'Overview', to: '/market', route: 'market-overview' },
+        { name: 'Premarket & Movers', to: '/market/premarket', route: 'market-premarket' },
         { name: 'Trading Halts', to: '/market/halts', route: 'market-halts' }
       ]
     },

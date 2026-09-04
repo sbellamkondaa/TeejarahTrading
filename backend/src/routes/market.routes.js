@@ -10,5 +10,6 @@ router.get('/halts', marketController.getHalts);
 router.get('/news', marketController.getNews);
 router.get('/earnings', marketController.getEarnings);
 router.get('/filings', marketController.getFilings);
+router.get('/movers', marketController.getMovers);
 
 module.exports = router;

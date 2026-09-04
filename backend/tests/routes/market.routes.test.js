@@ -42,14 +42,14 @@ describe('market.routes wiring', () => {
 
   test('all 5 GET endpoints are registered (read-only)', () => {
     const paths = getCalls.map((args) => args[0]);
-    expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/news']);
+    expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/movers', '/news']);
   });
 
   test('no mutating routes are registered (only GET)', () => {
     // The fake router only exposes use/get; if market.routes.js had called
     // post/put/delete they would throw here. The get-only assertions above
     // confirm read-only.
-    expect(getCalls.length).toBe(5);
+    expect(getCalls.length).toBe(6);
   });
 
   test('authenticate rejects without a session (401)', () => {

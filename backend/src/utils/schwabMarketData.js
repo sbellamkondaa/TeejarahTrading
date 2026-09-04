@@ -618,6 +618,80 @@ class SchwabMarketData {
       resetAt: this.rateLimitReset
     };
   }
+
+  /**
+   * Get market movers for a Schwab index symbol.
+   * Schwab exposes /marketdata/v1/movers/{indexSymbol} which returns the most
+   * active stocks for the given index. Gainers/losers are derived from the
+   * netChange sign by the caller.
+   *
+   * @param {string} indexSymbol - Schwab index: $DJI, $COMPX, $SPX
+   * @returns {Promise<object|null>} { items: [...], fetched_at, source }
+   */
+  async getMovers(indexSymbol = '$COMPX') {
+    const normalizedIndex = indexSymbol.toUpperCase();
+    const cacheKey = `movers:${normalizedIndex}`;
+
+    // 60-second Redis cache — movers don't change rapidly and this avoids
+    // hammering the Schwab API on every page refresh.
+    const cached = await redisCache.get('schwab', cacheKey).catch(() => null);
+    if (cached) {
+      return { ...cached, source: 'schwab-cached' };
+    }
+
+    const connection = await this.getActiveConnection();
+    if (!connection) {
+      return null;
+    }
+
+    const { accessToken, needsReauth } = await this.ensureValidToken(connection);
+    if (needsReauth || !accessToken) {
+      return null;
+    }
+
+    try {
+      const response = await axios.get(
+        `${SCHWAB_MARKET_DATA_BASE}/movers/${normalizedIndex}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 10000
+        }
+      );
+
+      const rawItems = response.data?.screeners || response.data?.Movers || [];
+      if (!Array.isArray(rawItems) || rawItems.length === 0) {
+        return { items: [], fetched_at: Date.now(), source: 'schwab' };
+      }
+
+      const items = rawItems.map((item) => ({
+        symbol: item.symbol,
+        description: item.description || null,
+        last_price: item.lastPrice != null ? Number(item.lastPrice) : null,
+        net_change: item.netChange != null ? Number(item.netChange) : null,
+        net_percent_change: item.netPercentChange != null
+          ? Number(item.netPercentChange) * 100  // Schwab returns decimal (0.0083 = 0.83%)
+          : null,
+        volume: item.volume != null ? Number(item.volume) : null,
+        total_volume: item.totalVolume != null ? Number(item.totalVolume) : null,
+        trades: item.trades != null ? Number(item.trades) : null,
+        market_share: item.marketShare != null ? Number(item.marketShare) : null
+      }));
+
+      const result = { items, fetched_at: Date.now(), source: 'schwab' };
+
+      // Cache for 60 seconds
+      await redisCache.set('schwab', cacheKey, result, 60 * 1000).catch(() => null);
+
+      return result;
+    } catch (error) {
+      if (error.response?.status === 429) {
+        console.warn('[SCHWAB-MARKET] Movers rate limited');
+      } else {
+        console.error('[SCHWAB-MARKET] Movers error:', error.message);
+      }
+      return null;
+    }
+  }
 }
 
 module.exports = new SchwabMarketData();

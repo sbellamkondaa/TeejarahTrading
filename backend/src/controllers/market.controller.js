@@ -5,6 +5,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const { describeHaltReasonCode } = require('../services/nasdaq/haltReasonCodes');
 const { isSchedulerEnabled, SCHEDULER_NAME } = require('../services/nasdaq/nasdaqHaltScheduler');
 const SchedulerStatusService = require('../services/schedulerStatusService');
+const schwabMarketData = require('../utils/schwabMarketData');
+const { getMarketSession } = require('../utils/marketSession');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -288,10 +290,317 @@ async function getFilings(req, res) {
   return res.json({ filings, count: filings.length });
 }
 
+// Schwab indexes queried for movers. $COMPX (Nasdaq Composite) has the broadest
+// coverage; $DJI and $SPX supplement. We fetch all three and merge, deduping by
+// symbol, so the user sees the widest set of movers.
+const MOVER_INDEXES = ['$COMPX', '$DJI', '$SPX'];
+const MOVER_CACHE_TTL_MS = 60 * 1000; // 60-second Redis cache
+const MOVER_MAX_LIMIT = 100;
+const MOVER_DEFAULT_LIMIT = 25;
+const MOVER_INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
+
+function parseFloatParam(value, fallback = null) {
+  if (value == null || value === '') return fallback;
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// Categorize a mover based on net_change sign.
+function categorizeMover(mover) {
+  if (mover.net_change == null) return 'active';
+  return mover.net_change >= 0 ? 'gainers' : 'losers';
+}
+
+// Calculate gap_pct: (last_price - previous_close) / previous_close * 100.
+// Returns null if either value is missing/zero.
+function calculateGapPct(lastPrice, previousClose) {
+  if (!Number.isFinite(lastPrice) || !Number.isFinite(previousClose) || previousClose === 0) {
+    return null;
+  }
+  return ((lastPrice - previousClose) / previousClose) * 100;
+}
+
+// Batch-enrich movers with catalyst badges from existing DB records.
+// Queries halts, recent news, earnings, and SEC filings for the mover symbols.
+async function enrichWithCatalysts(symbols) {
+  if (!symbols.length) return {};
+  const catalysts = {};
+
+  // Initialize empty arrays
+  for (const s of symbols) catalysts[s] = [];
+
+  try {
+    // Recent halts (last 7 days)
+    const haltResult = await db.query(
+      `SELECT symbol, halt_type, halted_at, resume_at, is_resumption
+       FROM market_halts
+       WHERE symbol = ANY($1::text[])
+         AND halted_at >= NOW() - INTERVAL '7 days'
+       ORDER BY halted_at DESC`,
+      [symbols]
+    );
+    for (const row of haltResult.rows) {
+      if (catalysts[row.symbol]) {
+        catalysts[row.symbol].push({
+          type: row.is_resumption ? 'halt_resumed' : 'halt',
+          label: row.is_resumption ? 'Halt Resumed' : 'Halted',
+          timestamp: row.halted_at
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('[MARKET] Catalyst halt enrichment failed: ' + err.message);
+  }
+
+  try {
+    // Recent earnings (within ±7 days of today)
+    const today = new Date().toISOString().split('T')[0];
+    const earningsResult = await db.query(
+      `SELECT earnings_data FROM dashboard_earnings_cache
+       WHERE date_to >= $1
+       ORDER BY date_from DESC LIMIT 1`,
+      [today]
+    );
+    if (earningsResult.rows.length) {
+      const all = earningsResult.rows[0].earnings_data || [];
+      const near = all.filter((e) => {
+        if (!e.symbol || !e.date) return false;
+        const diff = Math.abs(new Date(e.date).getTime() - Date.now());
+        return diff <= 7 * 24 * 60 * 60 * 1000 && symbols.includes(e.symbol);
+      });
+      for (const e of near) {
+        if (catalysts[e.symbol]) {
+          catalysts[e.symbol].push({
+            type: 'earnings',
+            label: 'Earnings',
+            timestamp: e.date
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('[MARKET] Catalyst earnings enrichment failed: ' + err.message);
+  }
+
+  try {
+    // Recent SEC filings (last 7 days)
+    const filingsResult = await db.query(
+      `SELECT sc.ticker, sf.form_type, sf.filing_date
+       FROM sec_filings sf
+       JOIN sec_companies sc ON sc.id = sf.company_id
+       WHERE sc.ticker = ANY($1::text[])
+         AND sf.accepted_at >= NOW() - INTERVAL '7 days'
+       ORDER BY sf.accepted_at DESC`,
+      [symbols]
+    );
+    for (const row of filingsResult.rows) {
+      if (catalysts[row.ticker]) {
+        catalysts[row.ticker].push({
+          type: 'sec_filing',
+          label: row.form_type,
+          timestamp: row.filing_date
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('[MARKET] Catalyst SEC enrichment failed: ' + err.message);
+  }
+
+  return catalysts;
+}
+
+// GET /api/market/movers?category=gainers|losers|active&limit=25
+//   &min_price=0&max_price=1000&min_gap=0&min_volume=0&include_halted=true
+async function getMovers(req, res) {
+  const category = parseToken(req.query.category, 16);
+  const validCategories = ['gainers', 'losers', 'active'];
+  const categoryFilter = validCategories.includes(category)
+    ? category.toLowerCase()
+    : 'active';
+
+  const limitRaw = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0
+    ? Math.min(limitRaw, MOVER_MAX_LIMIT)
+    : MOVER_DEFAULT_LIMIT;
+
+  const minPrice = parseFloatParam(req.query.min_price, null);
+  const maxPrice = parseFloatParam(req.query.max_price, null);
+  const minGap = parseFloatParam(req.query.min_gap, null);
+  const minVolume = parseFloatParam(req.query.min_volume, null);
+  const includeHalted = String(req.query.include_halted || '').toLowerCase() !== 'false';
+
+  // Fetch movers from all Schwab indexes (cached 60s, single batch call each)
+  const allItems = [];
+  const fetchedAts = [];
+  let source = 'schwab';
+
+  for (const indexSymbol of MOVER_INDEXES) {
+    const result = await schwabMarketData.getMovers(indexSymbol);
+    if (result && result.items) {
+      allItems.push(...result.items);
+      fetchedAts.push(result.fetched_at);
+      if (result.source === 'schwab-cached') source = 'schwab-cached';
+    }
+  }
+
+  if (allItems.length === 0) {
+    const session = getMarketSession();
+    return res.json({
+      session: session.session,
+      session_label: session.label,
+      as_of: Date.now(),
+      source,
+      stale: false,
+      movers: [],
+      indices: null,
+      error: 'Movers data unavailable (Schwab connection may be inactive)'
+    });
+  }
+
+  // Deduplicate by symbol (keep first occurrence — highest volume index wins)
+  const seen = new Set();
+  const deduped = [];
+  for (const item of allItems) {
+    const sym = item.symbol?.toUpperCase();
+    if (sym && !seen.has(sym)) {
+      seen.add(sym);
+      deduped.push(item);
+    }
+  }
+
+  // Batch-quote for previous close (gap calculation). One Schwab call for all
+  // mover symbols — no N+1.
+  const symbolsToQuote = deduped.map((i) => i.symbol);
+  let quotes = {};
+  try {
+    quotes = await finnhub.getQuotes(symbolsToQuote);
+  } catch (err) {
+    logger.warn('[MARKET] Movers batch quote failed: ' + err.message);
+  }
+
+  // Merge mover data + quote previous close, calculate gap_pct
+  let movers = deduped.map((item) => {
+    const sym = item.symbol;
+    const q = quotes[sym] || {};
+    const previousClose = q.pc != null ? Number(q.pc) : null;
+    const gapPct = calculateGapPct(item.last_price, previousClose);
+    return {
+      symbol: sym,
+      company_name: item.description,
+      last_price: item.last_price,
+      previous_close: previousClose,
+      gap_pct: gapPct,
+      change: item.net_change,
+      change_percent: item.net_percent_change,
+      volume: item.volume,
+      total_volume: item.total_volume,
+      trades: item.trades,
+      market_share: item.market_share,
+      // Premarket volume is NOT separately available from this Schwab endpoint.
+      // The `volume` field reflects current session volume, not exclusively
+      // 04:00–09:30 ET. Do not label it as premarket volume.
+      premarket_volume: null,
+      // RVOL requires historical average volume data not available from this
+      // endpoint. Do not approximate with ordinary daily volume.
+      rvol: null,
+      exchange: null, // Schwab movers don't include exchange per-symbol
+      data_timestamp: q.t || null,
+      category: categorizeMover(item),
+      halted: false, // enriched below
+      catalysts: []   // enriched below
+    };
+  });
+
+  // Filter by category
+  if (categoryFilter === 'gainers') {
+    movers = movers.filter((m) => m.change != null && m.change >= 0);
+    movers.sort((a, b) => (b.change_percent || -Infinity) - (a.change_percent || -Infinity));
+  } else if (categoryFilter === 'losers') {
+    movers = movers.filter((m) => m.change != null && m.change < 0);
+    movers.sort((a, b) => (a.change_percent || Infinity) - (b.change_percent || Infinity));
+  } else {
+    // active: sort by volume desc
+    movers.sort((a, b) => (b.volume || 0) - (a.volume || 0));
+  }
+
+  // Apply price/gap/volume filters
+  movers = movers.filter((m) => {
+    if (minPrice != null && (m.last_price == null || m.last_price < minPrice)) return false;
+    if (maxPrice != null && (m.last_price == null || m.last_price > maxPrice)) return false;
+    if (minGap != null && (m.gap_pct == null || m.gap_pct < minGap)) return false;
+    if (minVolume != null && (m.volume == null || m.volume < minVolume)) return false;
+    return true;
+  });
+
+  // Enrich with halt status
+  if (seen.size > 0) {
+    try {
+      const haltResult = await db.query(
+        `SELECT DISTINCT symbol FROM market_halts
+         WHERE symbol = ANY($1::text[])
+           AND is_resumption = false`,
+        [Array.from(seen)]
+      );
+      const haltedSymbols = new Set(haltResult.rows.map((r) => r.symbol));
+      movers.forEach((m) => { m.halted = haltedSymbols.has(m.symbol); });
+    } catch (err) {
+      logger.warn('[MARKET] Movers halt enrichment failed: ' + err.message);
+    }
+
+    // Exclude halted if requested
+    if (!includeHalted) {
+      movers = movers.filter((m) => !m.halted);
+    }
+
+    // Catalyst enrichment (batched DB queries, no N+1)
+    const catalystMap = await enrichWithCatalysts(movers.map((m) => m.symbol));
+    movers.forEach((m) => {
+      m.catalysts = catalystMap[m.symbol] || [];
+    });
+  }
+
+  movers = movers.slice(0, limit);
+
+  // Fetch index quotes for market context (reuse existing infrastructure)
+  let indices = null;
+  try {
+    const indexQuotes = await finnhub.getQuotes(MOVER_INDEX_SYMBOLS);
+    indices = MOVER_INDEX_SYMBOLS.map((sym) => {
+      const q = indexQuotes[sym];
+      if (!q || q.c == null) return { symbol: sym, available: false };
+      return {
+        symbol: sym,
+        available: true,
+        price: numberOrNull(q.c),
+        change: numberOrNull(q.d),
+        change_percent: numberOrNull(q.dp),
+        timestamp: numberOrNull(q.t)
+      };
+    });
+  } catch (err) {
+    logger.warn('[MARKET] Movers index quotes failed: ' + err.message);
+  }
+
+  const session = getMarketSession();
+  const asOf = fetchedAts.length ? Math.min(...fetchedAts) : Date.now();
+  const stale = (Date.now() - asOf) > 5 * 60 * 1000;
+
+  return res.json({
+    session: session.session,
+    session_label: session.label,
+    as_of: asOf,
+    source,
+    stale,
+    movers,
+    indices
+  });
+}
+
 module.exports = {
   getIndices: asyncHandler(getIndices),
   getHalts: asyncHandler(getHalts),
   getNews: asyncHandler(getNews),
   getEarnings: asyncHandler(getEarnings),
-  getFilings: asyncHandler(getFilings)
+  getFilings: asyncHandler(getFilings),
+  getMovers: asyncHandler(getMovers)
 };

@@ -27,7 +27,7 @@
       "git log *": "allow",
       "git branch *": "allow",
       "git show *": "allow",
-      "git commit *": "ask",
+      "git commit *": "allow",
       "git push *": "ask",
       "git pull *": "ask",
       "git checkout *": "ask",
@@ -45,8 +45,11 @@
       "/usr/local/bin/teejarah-remote-logs *": "allow",
       "/usr/local/bin/teejarah-remote-sync": "allow",
       "/usr/local/bin/teejarah-remote-build": "allow",
-      "/usr/local/bin/teejarah-remote-deploy": "ask",
-      "/usr/local/bin/teejarah-nasdaq-check *": "allow"
+      "/usr/local/bin/teejarah-remote-deploy": "allow",
+      "/usr/local/bin/teejarah-nasdaq-check *": "allow",
+      "git add *": "allow",
+      "git push origin feature/data-plane-foundation": "allow",
+      "/usr/local/bin/teejarah-url-check": "allow"
     }
   },
   "small_model": "openrouter/z-ai/glm-5.3-flash",

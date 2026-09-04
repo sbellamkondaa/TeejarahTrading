@@ -16,11 +16,23 @@ jest.mock('../../src/services/nasdaq/nasdaqHaltScheduler', () => ({
 jest.mock('../../src/services/schedulerStatusService', () => ({
   get: jest.fn()
 }));
+jest.mock('../../src/utils/schwabMarketData', () => ({
+  getMovers: jest.fn()
+}));
+jest.mock('../../src/utils/marketSession', () => ({
+  getMarketSession: jest.fn(() => ({
+    session: 'closed',
+    label: 'Closed',
+    as_of: Date.now()
+  }))
+}));
 
 const db = require('../../src/config/database');
 const finnhub = require('../../src/utils/finnhub');
 const { isSchedulerEnabled } = require('../../src/services/nasdaq/nasdaqHaltScheduler');
 const SchedulerStatusService = require('../../src/services/schedulerStatusService');
+const schwabMarketData = require('../../src/utils/schwabMarketData');
+const { getMarketSession } = require('../../src/utils/marketSession');
 const controller = require('../../src/controllers/market.controller');
 
 function mockRes() {
@@ -40,6 +52,10 @@ describe('market.controller', () => {
     isSchedulerEnabled.mockReset();
     isSchedulerEnabled.mockReturnValue(false);
     SchedulerStatusService.get.mockReset();
+    schwabMarketData.getMovers.mockReset();
+    getMarketSession.mockReset();
+    getMarketSession.mockReturnValue({ session: 'closed', label: 'Closed', as_of: Date.now() });
+    finnhub.getQuotes.mockReset();
   });
 
   describe('getIndices', () => {
@@ -358,6 +374,320 @@ describe('market.controller', () => {
       expect(params[1]).toBe(10);
       expect(res.body.filings[0].ticker).toBe('AAPL');
       expect(res.body.filings[0].url).toBe('https://sec.gov/x');
+    });
+  });
+
+  describe('getMovers', () => {
+    function mockMoversResult(items) {
+      return { items, fetched_at: Date.now(), source: 'schwab' };
+    }
+
+    test('returns movers with gap_pct calculated from batch quotes', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'NVDA', description: 'NVIDIA CORP', lastPrice: 230, netChange: 5, netPercentChange: 0.022, volume: 1000000 }
+        ]))
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'INTC', description: 'INTEL CORP', lastPrice: 93, netChange: -2, netPercentChange: -0.021, volume: 500000 }
+        ]))
+        .mockResolvedValueOnce(mockMoversResult([]));
+
+      finnhub.getQuotes
+        .mockResolvedValueOnce({
+          NVDA: { pc: 225, t: TS },
+          INTC: { pc: 95, t: TS }
+        })
+        .mockResolvedValueOnce({
+          SPY: { c: 500, d: 1, dp: 0.2, t: TS },
+          QQQ: { c: 400, d: 0, dp: 0, t: TS },
+          IWM: { c: 200, d: 0, dp: 0, t: TS },
+          DIA: { c: 450, d: 0, dp: 0, t: TS }
+        });
+
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { category: 'active' } }, res);
+
+      expect(res.body.movers).toHaveLength(2);
+      expect(res.body.movers[0].symbol).toBe('NVDA');
+      expect(res.body.movers[0].gap_pct).toBeCloseTo(2.22); // (230-225)/225*100
+      expect(res.body.movers[0].previous_close).toBe(225);
+      expect(res.body.movers[1].symbol).toBe('INTC');
+      expect(res.body.movers[1].gap_pct).toBeCloseTo(-2.11); // (93-95)/95*100
+    });
+
+    test('active category sorts by volume descending', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'LOW_VOL', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
+          { symbol: 'HIGH_VOL', lastPrice: 50, netChange: -1, netPercentChange: -0.02, volume: 5000000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { category: 'active' } }, res);
+
+      expect(res.body.movers[0].symbol).toBe('HIGH_VOL');
+      expect(res.body.movers[1].symbol).toBe('LOW_VOL');
+    });
+
+    test('gainers category filters to positive change and sorts by change_percent desc', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'UP1', lastPrice: 10, netChange: 0.5, netPercentChange: 0.05, volume: 1000 },
+          { symbol: 'DOWN', lastPrice: 10, netChange: -0.5, netPercentChange: -0.05, volume: 1000 },
+          { symbol: 'UP2', lastPrice: 20, netChange: 2, netPercentChange: 0.11, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { category: 'gainers' } }, res);
+
+      expect(res.body.movers).toHaveLength(2);
+      expect(res.body.movers[0].symbol).toBe('UP2'); // 11% > 5%
+      expect(res.body.movers[1].symbol).toBe('UP1');
+    });
+
+    test('losers category filters to negative change and sorts by change_percent asc', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'UP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
+          { symbol: 'DOWN1', lastPrice: 10, netChange: -0.5, netPercentChange: -0.05, volume: 1000 },
+          { symbol: 'DOWN2', lastPrice: 10, netChange: -1, netPercentChange: -0.1, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { category: 'losers' } }, res);
+
+      expect(res.body.movers).toHaveLength(2);
+      expect(res.body.movers[0].symbol).toBe('DOWN2'); // -10% < -5%
+      expect(res.body.movers[1].symbol).toBe('DOWN1');
+    });
+
+    test('invalid category falls back to active', async () => {
+      schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { category: 'bogus' } }, res);
+      expect(res.body.movers).toEqual([]);
+      // no error, just empty active list
+    });
+
+    test('limit is clamped to max 100', async () => {
+      schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { limit: '9999' } }, res);
+      expect(res.body.movers).toHaveLength(0); // empty movers, but didn't error
+    });
+
+    test('price filters exclude out-of-range movers', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'CHEAP', lastPrice: 5, netChange: 1, netPercentChange: 0.2, volume: 1000 },
+          { symbol: 'PRICEY', lastPrice: 500, netChange: 1, netPercentChange: 0.002, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { min_price: '10', max_price: '100' } }, res);
+      expect(res.body.movers).toHaveLength(0);
+    });
+
+    test('min_volume filter excludes low-volume movers', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'LOW', lastPrice: 50, netChange: 1, netPercentChange: 0.02, volume: 500 },
+          { symbol: 'HIGH', lastPrice: 50, netChange: 1, netPercentChange: 0.02, volume: 5000000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { min_volume: '10000' } }, res);
+      expect(res.body.movers).toHaveLength(1);
+      expect(res.body.movers[0].symbol).toBe('HIGH');
+    });
+
+    test('include_halted=false filters out halted symbols', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'HALT', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
+          { symbol: 'OPEN', lastPrice: 20, netChange: 1, netPercentChange: 0.05, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      // First db.query: halt check returns HALT as halted
+      db.query.mockResolvedValueOnce({ rows: [{ symbol: 'HALT' }] });
+      // Remaining db.query calls: earnings + SEC (empty)
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: { include_halted: 'false' } }, res);
+
+      expect(res.body.movers).toHaveLength(1);
+      expect(res.body.movers[0].symbol).toBe('OPEN');
+    });
+
+    test('halted flag is set on movers with active halts', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'STOPPED', lastPrice: 10, netChange: 0, netPercentChange: 0, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValueOnce({ rows: [{ symbol: 'STOPPED' }] });
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.movers[0].halted).toBe(true);
+    });
+
+    test('catalyst enrichment adds badges from halts, earnings, SEC', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'CATL', description: 'Catalyst Corp', lastPrice: 50, netChange: 2, netPercentChange: 0.04, volume: 1000000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({ CATL: { pc: 48, t: TS } });
+      // db.query calls in order: halt check, earnings cache, SEC filings
+      db.query
+        .mockResolvedValueOnce({ rows: [{ symbol: 'CATL', is_resumption: false, halt_type: 'LUDP', halted_at: '2026-09-04T13:00:00Z' }] })
+        .mockResolvedValueOnce({ rows: [{ earnings_data: [{ symbol: 'CATL', date: '2026-09-05' }] }] })
+        .mockResolvedValueOnce({ rows: [{ ticker: 'CATL', form_type: '8-K', filing_date: '2026-09-03' }] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      const catalysts = res.body.movers[0].catalysts;
+      expect(catalysts).toHaveLength(3);
+      expect(catalysts.some(c => c.type === 'halt')).toBe(true);
+      expect(catalysts.some(c => c.type === 'earnings')).toBe(true);
+      expect(catalysts.some(c => c.type === 'sec_filing')).toBe(true);
+    });
+
+    test('gap_pct is null when previous close is missing', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'NOGAP', lastPrice: 100, netChange: 5, netPercentChange: 0.05, volume: 1000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({ NOGAP: {} }); // no pc field
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.movers[0].gap_pct).toBeNull();
+      expect(res.body.movers[0].previous_close).toBeNull();
+    });
+
+    test('returns session and as_of metadata', async () => {
+      schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+      getMarketSession.mockReturnValue({ session: 'premarket', label: 'Pre-Market', as_of: Date.now() });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.session).toBe('premarket');
+      expect(res.body.session_label).toBe('Pre-Market');
+      expect(res.body.as_of).toBeGreaterThan(0);
+    });
+
+    test('returns indices from batch quote', async () => {
+      schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
+      finnhub.getQuotes.mockResolvedValue({
+        SPY: { c: 500, d: 1, dp: 0.2, t: TS },
+        QQQ: { c: 400, d: 0, dp: 0, t: TS },
+        IWM: { c: 200, d: -1, dp: -0.5, t: TS },
+        DIA: { c: 450, d: 0, dp: 0, t: TS }
+      });
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.indices).toHaveLength(4);
+      expect(res.body.indices[0].symbol).toBe('SPY');
+      expect(res.body.indices[0].available).toBe(true);
+    });
+
+    test('premarket_volume and rvol are null (not available)', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'X', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 50000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({ X: { pc: 9, t: TS } });
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.movers[0].premarket_volume).toBeNull();
+      expect(res.body.movers[0].rvol).toBeNull();
+    });
+
+    test('handles Schwab unavailability gracefully', async () => {
+      schwabMarketData.getMovers.mockResolvedValue(null);
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.movers).toEqual([]);
+      expect(res.body.error).toContain('unavailable');
+    });
+
+    test('deduplicates symbols across indexes', async () => {
+      schwabMarketData.getMovers
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'DUP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 }
+        ]))
+        .mockResolvedValueOnce(mockMoversResult([
+          { symbol: 'DUP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
+          { symbol: 'UNIQ', lastPrice: 20, netChange: 0, netPercentChange: 0, volume: 2000 }
+        ]))
+        .mockResolvedValue(mockMoversResult([]));
+
+      finnhub.getQuotes.mockResolvedValue({});
+      db.query.mockResolvedValue({ rows: [] });
+
+      const res = mockRes();
+      await controller.getMovers({ query: {} }, res);
+
+      expect(res.body.movers).toHaveLength(2);
+      expect(res.body.movers.map(m => m.symbol).sort()).toEqual(['DUP', 'UNIQ']);
     });
   });
 });

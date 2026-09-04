@@ -132,55 +132,47 @@ Verified snapshot:
 - 1,989 Company Facts
 - no duplicate fact growth on repeat ingestion
 
-## Nasdaq Halts — Current Work
+## Nasdaq Halts — Production Complete
 
 Status:
 
-- Experimental implementation committed in `5fedf412`
-- Migration and client are present in Git
-- Production-quality source coverage has NOT yet been validated
-- Scheduler must NOT be enabled until direct validation succeeds
+- Production complete and deployed
+- Nasdaq halt scheduler enabled (`ENABLE_NASDAQ_HALT_SCHEDULER=true`)
+- 60-second polling interval (`NASDAQ_HALT_INTERVAL_SECONDS=60`)
+- Scheduler-status freshness tracking via `scheduler_status` table
+- Idempotent upsert validated (0 duplicates across repeated polls)
 
 Migration:
 - `backend/migrations/260_create_market_halts_table.sql`
 
 Client:
-- `backend/src/services/nasdaq/nasdaqClient.js`
+- `backend/src/services/nasdaq/nasdaqClient.js` — RSS feed parser, idempotent ingest
 
-Current client:
-- fetches Nasdaq Trader halt page
-- rate limited
-- retry/backoff
-- parses HTML rows
-- source-hash dedupe
+Scheduler:
+- `backend/src/services/nasdaq/nasdaqHaltScheduler.js` — IntervalScheduler, overlap guard, records to SchedulerStatusService
 
-Caveat:
-The Nasdaq page may be JavaScript-rendered or incomplete in static HTML. Do not claim complete halt coverage without validation.
+## Market Intelligence — Current Active Development
 
-Before adding a scheduler:
-1. Build app and worker.
-2. Run the client directly inside the container.
-3. Verify response status.
-4. Verify parsed event count.
-5. Verify `market_halts` row count.
-6. If the source is incomplete, find a permitted official feed or mark the feature unavailable.
-7. Only then add a worker scheduler.
+### Market Overview (`/market`)
+- Live index quotes (SPY, QQQ, IWM, DIA) via Schwab
+- Trading halts from `market_halts` with freshness metadata
+- Market news via Finnhub company news
+- Upcoming earnings from `dashboard_earnings_cache`
+- Recent SEC filings from `sec_filings`
 
-## Not Implemented Yet
+### Trading Halts (`/market/halts`)
+- Dedicated page with status/market/reason/symbol filters
+- Reason-code mapping (T1, T12, H11, LUDP, M, etc.)
+- Freshness via `scheduler_status` (not row created_at)
+- "Automatic updates off" when scheduler disabled
 
-- Nasdaq halt scheduler
-- FINRA short-volume
-- FRED/BLS macro
-- USAspending
-- USPTO PatentsView
-- Schwab streaming WebSocket
-- full market depth/order book
-- technical indicator engine
-- scanner engine
-- deterministic risk score
-- position sizing
-- OpenRouter advisory
-- AI news/document enrichment
+### Premarket & Movers (`/market/premarket`) — In Progress
+- Schwab `/marketdata/v1/movers/{index}` for $DJI, $COMPX, $SPX
+- Categories: Gainers, Losers, Most Active (derived from netChange)
+- Gap % calculated from batch-quoted previous close
+- Catalyst badges: halts, earnings, SEC filings (existing DB data)
+- Premarket volume and RVOL: not available from current Schwab endpoint
+- 60-second Redis cache for Schwab movers data
 
 ## Planned Order After Nasdaq Validation
 
