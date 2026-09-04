@@ -11,6 +11,7 @@ const { scanCandidates } = require('../utils/scanner');
 const { buildFundamentalProfiles } = require('../services/fundamentalEngine');
 const { assessDilutionRisk } = require('../services/dilutionRiskEngine');
 const { getCatalystsForSymbols, getStrongestCatalyst } = require('../services/catalystEngine');
+const { getRelationshipGraph } = require('../services/stockRelationshipService');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -827,6 +828,22 @@ async function getScanner(req, res) {
   });
 }
 
+// GET /api/market/relationships/:symbol
+async function getRelationships(req, res) {
+  const symbol = parseToken(req.params.symbol, 20);
+  if (!symbol) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+
+  try {
+    const graph = await getRelationshipGraph(symbol);
+    return res.json(graph);
+  } catch (error) {
+    logger.error('[MARKET] relationships error for ' + symbol + ': ' + error.message);
+    return res.status(502).json({ error: 'Unable to fetch relationship data' });
+  }
+}
+
 module.exports = {
   getIndices: asyncHandler(getIndices),
   getHalts: asyncHandler(getHalts),
@@ -834,5 +851,6 @@ module.exports = {
   getEarnings: asyncHandler(getEarnings),
   getFilings: asyncHandler(getFilings),
   getMovers: asyncHandler(getMovers),
-  getScanner: asyncHandler(getScanner)
+  getScanner: asyncHandler(getScanner),
+  getRelationships: asyncHandler(getRelationships)
 };

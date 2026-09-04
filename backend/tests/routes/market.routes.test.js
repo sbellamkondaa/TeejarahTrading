@@ -17,7 +17,10 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getHalts: jest.fn(),
   getNews: jest.fn(),
   getEarnings: jest.fn(),
-  getFilings: jest.fn()
+  getFilings: jest.fn(),
+  getMovers: jest.fn(),
+  getScanner: jest.fn(),
+  getRelationships: jest.fn()
 }));
 
 const express = require('express');
@@ -40,16 +43,16 @@ describe('market.routes wiring', () => {
     expect(useCalls[0][0]).toBe(authenticate);
   });
 
-  test('all 5 GET endpoints are registered (read-only)', () => {
+  test('all 8 GET endpoints are registered (read-only)', () => {
     const paths = getCalls.map((args) => args[0]);
-    expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/movers', '/news', '/scanner']);
+    expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/movers', '/news', '/relationships/:symbol', '/scanner']);
   });
 
   test('no mutating routes are registered (only GET)', () => {
     // The fake router only exposes use/get; if market.routes.js had called
     // post/put/delete they would throw here. The get-only assertions above
     // confirm read-only.
-    expect(getCalls.length).toBe(7);
+    expect(getCalls.length).toBe(8);
   });
 
   test('authenticate rejects without a session (401)', () => {

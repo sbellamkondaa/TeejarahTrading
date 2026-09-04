@@ -507,6 +507,31 @@ class FinnhubClient {
     }
   }
 
+  // Peer / competitor symbols in the same industry. 24h cache — peer sets
+  // change rarely and this avoids repeated enrichment API calls.
+  async getPeers(symbol, options = {}) {
+    const symbolUpper = symbol.toUpperCase();
+
+    const cached = await cache.get('stock_peers', symbolUpper);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const peers = await this.makeRequest('/stock/peers', { symbol: symbolUpper }, this.enrichmentContext('stock_peers', options));
+
+      const list = Array.isArray(peers)
+        ? peers.filter((s) => typeof s === 'string' && s.trim() && s.toUpperCase() !== symbolUpper).slice(0, 20)
+        : [];
+
+      await cache.set('stock_peers', symbolUpper, list);
+      return list;
+    } catch (error) {
+      console.warn(`Failed to get peers for ${symbol}: ${error.message}`);
+      throw error;
+    }
+  }
+
   async getCompanyNews(symbol, fromDate = null, toDate = null, options = {}) {
     const symbolUpper = symbol.toUpperCase();
     const to = toDate || new Date().toISOString().split('T')[0];
