@@ -38,7 +38,9 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   getPaperPosition: jest.fn(),
   listPaperPositions: jest.fn(),
   listPaperOrders: jest.fn(),
-  getPaperAccount: jest.fn()
+  getPaperAccount: jest.fn(),
+  getPaperReconciliationStatus: jest.fn(),
+  triggerPaperReconciliation: jest.fn()
 }));
 
 const express = require('express');
@@ -71,6 +73,7 @@ describe('trading.routes wiring', () => {
       '/paper-account',
       '/paper-orders',
       '/paper-positions',
+      '/paper-reconciliation/status',
       '/proposals',
       '/proposals/:id',
       '/proposals/:id/paper-position',
@@ -87,6 +90,7 @@ describe('trading.routes wiring', () => {
   test('all expected POST endpoints are registered', () => {
     const paths = postCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual([
+      '/paper-reconciliation/run',
       '/proposals',
       '/proposals/:id/approval',
       '/proposals/:id/paper-cancel-entry',

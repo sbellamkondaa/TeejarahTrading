@@ -42,5 +42,7 @@ router.get('/proposals/:id/paper-position', tradingController.getPaperPosition);
 router.get('/paper-positions', tradingController.listPaperPositions);
 router.get('/paper-orders', tradingController.listPaperOrders);
 router.get('/paper-account', tradingController.getPaperAccount);
+router.get('/paper-reconciliation/status', tradingController.getPaperReconciliationStatus);
+router.post('/paper-reconciliation/run', tradingController.triggerPaperReconciliation);
 
 module.exports = router;

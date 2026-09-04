@@ -13,32 +13,14 @@ const db = require('../../config/database');
 const audit = require('./auditService');
 const { resolveMode } = require('./executionMode');
 const { canBecomeReadyForApproval, isEvaluationStale, getLatestEvaluation } = require('./riskEngine');
+const {
+  PROPOSAL_TRANSITIONS,
+  isValidProposalTransition: isValidTransition,
+  isIdempotent
+} = require('./stateMachine');
 
-// Valid lifecycle transitions per the state machine in PRODUCT_REQUIREMENTS.md
-const TRANSITIONS = {
-  SIGNAL_DETECTED: ['SIGNAL_VALIDATING'],
-  SIGNAL_VALIDATING: ['READY_FOR_APPROVAL', 'REJECTED'],
-  READY_FOR_APPROVAL: ['APPROVED', 'REJECTED', 'WATCH'],
-  APPROVED: ['ENTRY_SUBMITTED', 'REJECTED'],
-  REJECTED: [],
-  WATCH: ['READY_FOR_APPROVAL', 'REJECTED'],
-  ENTRY_SUBMITTED: ['ENTRY_PARTIALLY_FILLED', 'ENTRY_FILLED', 'ENTRY_CANCELLED', 'ERROR'],
-  ENTRY_PARTIALLY_FILLED: ['ENTRY_FILLED', 'ENTRY_CANCELLED', 'ERROR'],
-  ENTRY_FILLED: ['POSITION_ACTIVE', 'ERROR'],
-  ENTRY_CANCELLED: [],
-  POSITION_ACTIVE: ['T1_FILLED', 'STOP_FILLED', 'ERROR', 'MANUAL_INTERVENTION_REQUIRED'],
-  T1_FILLED: ['T2_FILLED', 'STOP_FILLED', 'POSITION_CLOSED'],
-  T2_FILLED: ['STOP_FILLED', 'POSITION_CLOSED'],
-  STOP_FILLED: ['POSITION_CLOSED'],
-  POSITION_CLOSED: [],
-  ERROR: ['MANUAL_INTERVENTION_REQUIRED'],
-  MANUAL_INTERVENTION_REQUIRED: []
-};
-
-function isValidTransition(from, to) {
-  const allowed = TRANSITIONS[from] || [];
-  return allowed.includes(to);
-}
+// Re-exported for backward compatibility (previously defined inline here).
+// The canonical transition table now lives in stateMachine.js.
 
 async function createProposal({
   signalId, strategyId, symbol, direction,
@@ -138,6 +120,13 @@ async function transitionState(proposalId, newState, userId = null) {
   const proposal = await getById(proposalId);
   if (!proposal) {
     throw new Error('Proposal not found');
+  }
+
+  // Idempotent: transitioning to the current state is a no-op. This makes
+  // reconciliation and restart recovery safe to call repeatedly without
+  // producing duplicate audit events or errors.
+  if (isIdempotent(proposal.lifecycle_state, newState)) {
+    return proposal;
   }
 
   if (!isValidTransition(proposal.lifecycle_state, newState)) {
@@ -317,5 +306,5 @@ module.exports = {
   getApprovals,
   editProposal,
   isValidTransition,
-  TRANSITIONS
+  TRANSITIONS: PROPOSAL_TRANSITIONS
 };

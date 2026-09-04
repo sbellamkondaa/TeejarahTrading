@@ -95,6 +95,7 @@ const activityTrackingService = require('./services/activityTrackingService');
 const engagementScheduler = require('./services/engagementScheduler');
 const secIngestionScheduler = require('./services/sec/secIngestionScheduler');
 const nasdaqHaltScheduler = require('./services/nasdaq/nasdaqHaltScheduler');
+const paperReconciliationScheduler = require('./services/trading/paperReconciliationScheduler');
 const activityTrackingMiddleware = require('./middleware/activityTracking');
 const emailTrackingRoutes = require('./routes/emailTracking.routes');
 const backgroundWorker = require('./workers/backgroundWorker');
@@ -817,6 +818,18 @@ function scheduleBackgroundServices(backgroundJobsDisabled) {
     console.log('Nasdaq halt scheduler disabled (ENABLE_NASDAQ_HALT_SCHEDULER=false)');
   }
 
+  if (backgroundJobsDisabled) {
+    console.log('Paper reconciliation scheduler disabled (DISABLE_BACKGROUND_JOBS=true)');
+  } else if (process.env.ENABLE_PAPER_RECONCILIATION === 'true') {
+    defer('paper-reconciliation-scheduler', () => {
+      console.log('Starting Paper reconciliation scheduler...');
+      paperReconciliationScheduler.start();
+      console.log('[SUCCESS] Paper reconciliation scheduler started');
+    });
+  } else {
+    console.log('Paper reconciliation scheduler disabled (ENABLE_PAPER_RECONCILIATION=false)');
+  }
+
   if (process.env.ENABLE_PUSH_NOTIFICATIONS === 'true') {
     console.log('Push notification service loaded');
   } else {
@@ -1025,6 +1038,7 @@ process.on('SIGTERM', async () => {
   stockScannerScheduler.stop();
   watchlistPillarsScheduler.stop();
   nasdaqHaltScheduler.stop();
+  paperReconciliationScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);
@@ -1053,6 +1067,7 @@ process.on('SIGINT', async () => {
   stockScannerScheduler.stop();
   watchlistPillarsScheduler.stop();
   nasdaqHaltScheduler.stop();
+  paperReconciliationScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);

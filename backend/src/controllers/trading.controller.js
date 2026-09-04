@@ -8,6 +8,7 @@ const executionMode = require('../services/trading/executionMode');
 const { runScan: runCatalystMomentumScan, STRATEGY_NAME: CATALYST_STRATEGY_NAME } = require('../services/trading/catalystMomentumStrategy');
 const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, getLatestEvaluation, isEvaluationStale, DEFAULT_RISK_CONFIG, RISK_PRESETS } = require('../services/trading/riskEngine');
 const paperBroker = require('../services/trading/paperBroker');
+const paperReconciliationScheduler = require('../services/trading/paperReconciliationScheduler');
 
 // --- Execution mode ---
 
@@ -434,6 +435,28 @@ async function getPaperAccount(req, res) {
   return res.json(summary);
 }
 
+// --- Paper reconciliation ---
+
+async function getPaperReconciliationStatus(req, res) {
+  const status = paperReconciliationScheduler.getStatus();
+  const SchedulerStatusService = require('../services/schedulerStatusService');
+  const dbStatus = await SchedulerStatusService.get('paper-reconciliation');
+  return res.json({
+    scheduler: status,
+    persisted: dbStatus
+  });
+}
+
+async function triggerPaperReconciliation(req, res) {
+  try {
+    const result = await paperBroker.runReconciliationCycle(req.user?.id || null);
+    return res.json(result);
+  } catch (err) {
+    logger.error('[TRADING] manual reconciliation error: ' + err.message);
+    return res.status(500).json({ error: 'Reconciliation failed' });
+  }
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -462,5 +485,7 @@ module.exports = {
   getPaperPosition: asyncHandler(getPaperPosition),
   listPaperPositions: asyncHandler(listPaperPositions),
   listPaperOrders: asyncHandler(listPaperOrders),
-  getPaperAccount: asyncHandler(getPaperAccount)
+  getPaperAccount: asyncHandler(getPaperAccount),
+  getPaperReconciliationStatus: asyncHandler(getPaperReconciliationStatus),
+  triggerPaperReconciliation: asyncHandler(triggerPaperReconciliation)
 };

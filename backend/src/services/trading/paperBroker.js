@@ -47,6 +47,11 @@ const finnhub = require('../../utils/finnhub');
 const proposalService = require('./proposalService');
 const auditService = require('./auditService');
 const { isEvaluationStale, getLatestEvaluation, canBecomeReadyForApproval } = require('./riskEngine');
+const {
+  assertOrderTransition,
+  assertOrderTransitionFromAny,
+  assertPositionTransition
+} = require('./stateMachine');
 
 // ── Configuration ──
 
@@ -372,6 +377,7 @@ async function submitEntry(proposalId, userId, options = {}) {
     position = posResult.rows[0];
 
     // Update order with fill info
+    assertOrderTransition(order.status, 'FILLED');
     await db.query(
       `UPDATE paper_orders
        SET filled_qty = $2, avg_fill_price = $3, status = 'FILLED',
@@ -498,17 +504,24 @@ async function processFills(proposalId, userId, options = {}) {
     throw new Error('Process fills requires PAPER execution mode');
   }
 
-  const position = await getPosition(proposalId);
+  let position = await getPosition(proposalId);
   if (!position || position.status !== 'OPEN') {
     return { fills: [], position_status: position?.status || 'NONE' };
   }
 
-  // Get all active sell orders
+  // Get all active sell orders.
+  // Stop-first ordering: when the market could have triggered both the stop
+  // and target limits within the same reconciliation cycle (intrabar
+  // ambiguity), process the protective stop first. This is the conservative
+  // worst-case rule for long positions — we cannot prove target hit before
+  // stop from a single quote snapshot, so we assume the adverse outcome.
+  // If the stop fills, pending T1/T2 are cancelled and the remaining position
+  // is exited at the stop price. Never allows total sell > remaining_qty.
   const activeOrders = await db.query(
     `SELECT * FROM paper_orders
      WHERE position_id = $1 AND side = 'sell'
        AND status IN ('SUBMITTED', 'PARTIALLY_FILLED')
-     ORDER BY created_at ASC`,
+     ORDER BY CASE WHEN order_type = 'stop' THEN 0 ELSE 1 END, created_at ASC`,
     [position.id]
   );
 
@@ -543,9 +556,11 @@ async function processFills(proposalId, userId, options = {}) {
     const fillResult = await executeSellFill(position, order, fill, proposal, userId);
     fills.push(fillResult);
 
-    // Refresh position state after fill
-    const updatedPos = await getPosition(proposalId);
-    if (updatedPos.status === 'CLOSED' || updatedPos.remaining_qty <= 0) {
+    // Refresh position state after fill — must use the updated position for
+    // the next iteration so remaining_qty is not stale (prevents wrong
+    // absolute-set on multi-fill cycles and incorrect status computation).
+    position = await getPosition(proposalId);
+    if (position.status === 'CLOSED' || position.remaining_qty <= 0) {
       positionClosed = true;
     }
   }
@@ -565,6 +580,7 @@ async function executeSellFill(position, order, fill, proposal, userId) {
   const fillPrice = fill.fillPrice;
 
   // Update order fill
+  assertOrderTransition(order.status, fill.status);
   const updatedOrder = await db.query(
     `UPDATE paper_orders
      SET filled_qty = $2, avg_fill_price = $3, status = $4,
@@ -578,6 +594,9 @@ async function executeSellFill(position, order, fill, proposal, userId) {
   const pnl = computePnl(position.direction, toNum(position.avg_entry_price), fillPrice, fillQty);
   const newRealizedPnl = round2(toNum(position.realized_pnl) + pnl);
   const newStatus = newRemaining <= 0 ? 'CLOSED' : 'OPEN';
+  if (newStatus !== position.status) {
+    assertPositionTransition(position.status, newStatus);
+  }
 
   const updatedPosition = await db.query(
     `UPDATE paper_positions
@@ -660,6 +679,7 @@ async function executeSellFill(position, order, fill, proposal, userId) {
  * Called when the stop fills before T1/T2.
  */
 async function cancelPendingTargets(positionId, userId) {
+  assertOrderTransitionFromAny(['SUBMITTED', 'PARTIALLY_FILLED'], 'CANCELLED');
   const result = await db.query(
     `UPDATE paper_orders
      SET status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -693,6 +713,7 @@ async function cancelEntry(proposalId, userId) {
     throw new Error('Entry already filled — cannot cancel');
   }
 
+  assertOrderTransition(order.status, 'CANCELLED');
   await db.query(
     `UPDATE paper_orders
      SET status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -744,6 +765,7 @@ async function updateStop(proposalId, newStopPrice, userId) {
   );
 
   for (const oldStop of existingStops.rows) {
+    assertOrderTransition(oldStop.status, 'CANCELLED');
     await db.query(
       `UPDATE paper_orders
        SET status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -858,6 +880,7 @@ async function manualClose(proposalId, userId) {
   const pnl = computePnl(position.direction, toNum(position.avg_entry_price), fillPrice, qty);
   const finalRealized = round2(toNum(position.realized_pnl) + pnl);
 
+  assertPositionTransition(position.status, 'CLOSED');
   await db.query(
     `UPDATE paper_positions
      SET remaining_qty = 0, realized_pnl = $2, status = 'CLOSED', closed_at = CURRENT_TIMESTAMP
@@ -989,6 +1012,14 @@ async function listOrders({ status, proposalId, limit = 100 } = {}) {
 }
 
 async function cancelOrder(orderId, userId) {
+  const existing = await db.query(
+    `SELECT status FROM paper_orders WHERE id = $1`,
+    [orderId]
+  );
+  const order = existing.rows[0];
+  if (!order) return null;
+  if (order.status === 'CANCELLED') return null; // idempotent
+  assertOrderTransition(order.status, 'CANCELLED');
   const result = await db.query(
     `UPDATE paper_orders
      SET status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -1032,6 +1063,280 @@ async function getUnrealizedPnl(position, quote) {
   return computePnl(position.direction, toNum(position.avg_entry_price), currentPrice, position.remaining_qty);
 }
 
+// ── Automated Reconciliation ──
+
+/**
+ * Verify the sell-quantity invariant for a position from persisted state.
+ * Hard invariant: total active sell qty <= remaining_qty.
+ * Returns { ok, activeSellQty, remainingQty }.
+ */
+async function verifySellInvariant(positionId) {
+  const result = await db.query(
+    `SELECT
+       COALESCE(SUM(quantity - filled_qty), 0) AS active_sell_qty
+     FROM paper_orders
+     WHERE position_id = $1 AND side = 'sell'
+       AND status IN ('SUBMITTED', 'PARTIALLY_FILLED')`,
+    [positionId]
+  );
+  const posResult = await db.query(
+    `SELECT remaining_qty FROM paper_positions WHERE id = $1`,
+    [positionId]
+  );
+  const activeSellQty = toNum(result.rows[0]?.active_sell_qty) || 0;
+  const remainingQty = toNum(posResult.rows[0]?.remaining_qty) || 0;
+  return { ok: activeSellQty <= remainingQty, activeSellQty, remainingQty };
+}
+
+/**
+ * Reconcile all open PAPER positions that have active (SUBMITTED or
+ * PARTIALLY_FILLED) sell orders. Called by the worker reconciliation
+ * scheduler. Each position is processed via processFills, which applies
+ * the deterministic fill rules and stop-first ordering.
+ *
+ * Concurrency: the scheduler wraps this in a Redis distributed lock to
+ * prevent overlap. Per-position locking is provided by the Redis lock
+ * in the scheduler's runReconciliation helper.
+ *
+ * @param userId - null for automated runs; a user id for manual triggers
+ * @returns {{ positionsProcessed, fillsApplied, errors }}
+ */
+async function reconcileAll(userId = null) {
+  const result = await db.query(
+    `SELECT DISTINCT pp.id, pp.proposal_id, pp.symbol
+     FROM paper_positions pp
+     JOIN paper_orders po ON po.position_id = pp.id
+     WHERE pp.status = 'OPEN'
+       AND pp.execution_mode = 'PAPER'
+       AND po.status IN ('SUBMITTED', 'PARTIALLY_FILLED')`
+  );
+
+  let positionsProcessed = 0;
+  let fillsApplied = 0;
+  const errors = [];
+
+  for (const row of result.rows) {
+    positionsProcessed++;
+    try {
+      const fillResult = await processFills(row.proposal_id, userId);
+      fillsApplied += (fillResult.fills || []).length;
+
+      // Verify invariant after processing
+      const inv = await verifySellInvariant(row.id);
+      if (!inv.ok) {
+        await proposalService.transitionState(
+          row.proposal_id,
+          'MANUAL_INTERVENTION_REQUIRED',
+          userId
+        );
+        await auditService.recordEvent(
+          'paper_invariant_violation',
+          'trade_proposal',
+          row.proposal_id,
+          { position_id: row.id, active_sell_qty: inv.activeSellQty, remaining_qty: inv.remainingQty }
+        );
+        errors.push({
+          proposal_id: row.proposal_id,
+          error: 'sell invariant violated after reconciliation',
+          active_sell_qty: inv.activeSellQty,
+          remaining_qty: inv.remainingQty
+        });
+      }
+    } catch (err) {
+      errors.push({ proposal_id: row.proposal_id, error: err.message });
+    }
+  }
+
+  return { positionsProcessed, fillsApplied, errors };
+}
+
+/**
+ * Restart recovery — detect and repair safe inconsistencies at worker
+ * startup or first reconciliation. Only deterministic safe repairs are
+ * performed. Ambiguous state transitions the proposal to
+ * MANUAL_INTERVENTION_REQUIRED.
+ *
+ * Safe repairs:
+ *  1. FILLED entry order with no position → create the missing position.
+ *  2. CLOSED position with active SUBMITTED/PARTIALLY_FILLED exits → cancel them.
+ *  3. Position remaining_qty inconsistent with fills → recalculate.
+ *  4. Proposal lifecycle behind the position/order state → advance.
+ *
+ * Each repair is recorded as an audit event.
+ *
+ * @returns {{ repairs, manualInterventions }}
+ */
+async function runRestartRecovery(userId = null) {
+  const repairs = [];
+  const manualInterventions = [];
+
+  // 1. FILLED entry with no position → create position
+  const missingPositions = await db.query(
+    `SELECT po.* FROM paper_orders po
+     WHERE po.order_type = 'entry'
+       AND po.status = 'FILLED'
+       AND po.execution_mode = 'PAPER'
+       AND NOT EXISTS (
+       SELECT 1 FROM paper_positions pp WHERE pp.proposal_id = po.proposal_id
+     )`
+  );
+  for (const order of missingPositions.rows) {
+    try {
+      const proposal = await proposalService.getById(order.proposal_id);
+      if (!proposal) continue;
+
+      const fillQty = toNum(order.filled_qty) || 0;
+      const fillPrice = toNum(order.avg_fill_price);
+      if (fillQty <= 0 || fillPrice == null) {
+        // Ambiguous: filled order but no fill data
+        await proposalService.transitionState(order.proposal_id, 'MANUAL_INTERVENTION_REQUIRED', userId);
+        await auditService.recordEvent('paper_recovery_ambiguous', 'trade_proposal', order.proposal_id, {
+          reason: 'FILLED entry order with no fill quantity/price', order_id: order.id
+        });
+        manualInterventions.push({ proposal_id: order.proposal_id, reason: 'missing fill data' });
+        continue;
+      }
+
+      await db.query(
+        `INSERT INTO paper_positions (
+           proposal_id, signal_id, strategy_id, strategy_version,
+           symbol, direction, total_qty, remaining_qty, avg_entry_price, execution_mode
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, 'PAPER')`,
+        [order.proposal_id, order.signal_id, order.strategy_id, order.strategy_version,
+         order.symbol, proposal.direction, fillQty, fillPrice]
+      );
+
+      await proposalService.transitionState(order.proposal_id, 'ENTRY_FILLED', userId);
+      await proposalService.transitionState(order.proposal_id, 'POSITION_ACTIVE', userId);
+
+      // Recreate protective exits
+      const position = await getPosition(order.proposal_id);
+      if (position) {
+        await createProtectiveExits(position, proposal, userId);
+      }
+
+      await auditService.recordEvent('paper_recovery_repair', 'trade_proposal', order.proposal_id, {
+        repair: 'created_missing_position', position_id: position?.id, order_id: order.id
+      });
+      repairs.push({ proposal_id: order.proposal_id, repair: 'created_missing_position' });
+    } catch (err) {
+      await proposalService.transitionState(order.proposal_id, 'MANUAL_INTERVENTION_REQUIRED', userId);
+      await auditService.recordEvent('paper_recovery_failed', 'trade_proposal', order.proposal_id, {
+        repair: 'create_missing_position', error: err.message
+      });
+      manualInterventions.push({ proposal_id: order.proposal_id, reason: err.message });
+    }
+  }
+
+  // 2. CLOSED position with active exits → cancel them
+  const closedWithExits = await db.query(
+    `SELECT DISTINCT pp.id AS position_id, pp.proposal_id
+     FROM paper_positions pp
+     JOIN paper_orders po ON po.position_id = pp.id
+     WHERE pp.status = 'CLOSED'
+       AND po.status IN ('SUBMITTED', 'PARTIALLY_FILLED')`
+  );
+  for (const row of closedWithExits.rows) {
+    try {
+      await db.query(
+        `UPDATE paper_orders
+         SET status = 'CANCELLED', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE position_id = $1 AND status IN ('SUBMITTED', 'PARTIALLY_FILLED')`,
+        [row.position_id]
+      );
+      await auditService.recordEvent('paper_recovery_repair', 'trade_proposal', row.proposal_id, {
+        repair: 'cancelled_exits_on_closed_position', position_id: row.position_id
+      });
+      repairs.push({ proposal_id: row.proposal_id, repair: 'cancelled_exits_on_closed_position' });
+    } catch (err) {
+      manualInterventions.push({ proposal_id: row.proposal_id, reason: err.message });
+    }
+  }
+
+  // 3. Position remaining_qty inconsistent with fills → recalculate
+  const inconsistent = await db.query(
+    `SELECT pp.*,
+       (pp.total_qty - COALESCE(
+         (SELECT SUM(po.filled_qty) FROM paper_orders po
+          WHERE po.position_id = pp.id AND po.side = 'sell' AND po.status = 'FILLED'), 0
+       )) AS expected_remaining
+     FROM paper_positions pp
+     WHERE pp.status = 'OPEN' AND pp.execution_mode = 'PAPER'`
+  );
+  for (const pos of inconsistent.rows) {
+    const expected = toNum(pos.expected_remaining) ?? 0;
+    const actual = toNum(pos.remaining_qty) ?? 0;
+    if (expected !== actual) {
+      try {
+        await db.query(
+          `UPDATE paper_positions SET remaining_qty = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [pos.id, Math.max(0, expected)]
+        );
+        await auditService.recordEvent('paper_recovery_repair', 'trade_proposal', pos.proposal_id, {
+          repair: 'recalculated_remaining_qty',
+          position_id: pos.id, old_remaining: actual, new_remaining: Math.max(0, expected)
+        });
+        repairs.push({ proposal_id: pos.proposal_id, repair: 'recalculated_remaining_qty', old: actual, new: expected });
+
+        // If remaining is 0 but status is OPEN, close the position
+        if (expected <= 0) {
+          await db.query(
+            `UPDATE paper_positions SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [pos.id]
+          );
+          await proposalService.transitionState(pos.proposal_id, 'POSITION_CLOSED', userId);
+          await auditService.recordEvent('paper_recovery_repair', 'trade_proposal', pos.proposal_id, {
+            repair: 'closed_zero_remaining_position', position_id: pos.id
+          });
+          repairs.push({ proposal_id: pos.proposal_id, repair: 'closed_zero_remaining_position' });
+        }
+      } catch (err) {
+        await proposalService.transitionState(pos.proposal_id, 'MANUAL_INTERVENTION_REQUIRED', userId);
+        manualInterventions.push({ proposal_id: pos.proposal_id, reason: err.message });
+      }
+    }
+  }
+
+  // 4. Verify sell invariant on all open positions
+  const openPositions = await db.query(
+    `SELECT id, proposal_id FROM paper_positions WHERE status = 'OPEN' AND execution_mode = 'PAPER'`
+  );
+  for (const pos of openPositions.rows) {
+    const inv = await verifySellInvariant(pos.id);
+    if (!inv.ok) {
+      await proposalService.transitionState(pos.proposal_id, 'MANUAL_INTERVENTION_REQUIRED', userId);
+      await auditService.recordEvent('paper_recovery_invariant_violation', 'trade_proposal', pos.proposal_id, {
+        position_id: pos.id, active_sell_qty: inv.activeSellQty, remaining_qty: inv.remainingQty
+      });
+      manualInterventions.push({
+        proposal_id: pos.proposal_id,
+        reason: 'sell invariant violated',
+        active_sell_qty: inv.activeSellQty,
+        remaining_qty: inv.remainingQty
+      });
+    }
+  }
+
+  return { repairs, manualInterventions };
+}
+
+/**
+ * Full reconciliation cycle: restart recovery + fill processing.
+ * Called by the scheduler's execute() method.
+ */
+async function runReconciliationCycle(userId = null) {
+  const recovery = await runRestartRecovery(userId);
+  const fillResult = await reconcileAll(userId);
+  return {
+    repairs: recovery.repairs.length,
+    manualInterventions: recovery.manualInterventions.length,
+    positionsProcessed: fillResult.positionsProcessed,
+    fillsApplied: fillResult.fillsApplied,
+    errors: fillResult.errors,
+    recoveryDetails: recovery
+  };
+}
+
 module.exports = {
   // Execution adapter interface
   submitEntry,
@@ -1040,6 +1345,11 @@ module.exports = {
   updateStop,
   manualClose,
   reconcile,
+  // Automated reconciliation
+  reconcileAll,
+  runRestartRecovery,
+  runReconciliationCycle,
+  verifySellInvariant,
   // Queries
   getOrder,
   getPosition,

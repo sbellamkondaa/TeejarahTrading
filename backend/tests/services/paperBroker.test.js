@@ -434,7 +434,7 @@ describe('updateStop', () => {
     proposalService.editProposal.mockResolvedValue({});
     db.query.mockImplementation((sql) => {
       if (sql.includes('SELECT * FROM paper_positions')) return Promise.resolve({ rows: [mockPosition] });
-      if (sql.includes('SELECT * FROM paper_orders') && sql.includes("'stop'")) return Promise.resolve({ rows: [{ id: 'old-stop', stop_price: 47 }] });
+      if (sql.includes('SELECT * FROM paper_orders') && sql.includes("'stop'")) return Promise.resolve({ rows: [{ id: 'old-stop', stop_price: 47, status: 'SUBMITTED' }] });
       if (sql.includes('SUM(quantity - filled_qty)')) return Promise.resolve({ rows: [{ active_qty: 100 }] });
       if (sql.startsWith('INSERT INTO paper_orders')) return Promise.resolve({ rows: [{ id: 'new-stop' }] });
       return Promise.resolve({ rows: [] });

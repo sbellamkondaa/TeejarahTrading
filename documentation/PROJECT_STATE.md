@@ -560,7 +560,44 @@ Current safety defaults:
    - Tests: 71 tests (fill simulation, idempotency, gating, protective exits,
      cancel, stop replacement, manual close, reconcile, no live broker calls)
 
-5. Order / Position State Machine
+5. Order / Position State Machine ← COMPLETED
+   - Canonical state machine module (stateMachine.js): proposal lifecycle
+     (DRAFT → READY_FOR_APPROVAL → APPROVED → ENTRY_SUBMITTED →
+     ENTRY_PARTIALLY_FILLED → ENTRY_FILLED → POSITION_ACTIVE → T1_FILLED →
+     T2_FILLED / STOP_FILLED → POSITION_CLOSED; plus REJECTED, WATCH, EXPIRED,
+     ENTRY_CANCELLED, ERROR, MANUAL_INTERVENTION_REQUIRED), order status
+     (SUBMITTED → PARTIALLY_FILLED → FILLED / CANCELLED), position status
+     (OPEN → CLOSED). Idempotent same-state transitions. Runtime guards via
+     assertTransition at each status-change site.
+   - Migration 265: additive DRAFT/EXPIRED states added to trade_proposals CHECK.
+   - Stop-first ordering: protective stop processed before targets when
+     intrabar ordering is ambiguous (conservative worst-case for longs).
+   - Automated PAPER reconciliation scheduler (paperReconciliationScheduler.js):
+     worker-only, env-gated (ENABLE_PAPER_RECONCILIATION), 5s default interval,
+     Redis distributed lock (120s TTL) prevents overlap across workers,
+     IntervalScheduler running guard prevents same-process overlap.
+     Status recorded via SchedulerStatusService (enabled, last run, success,
+     failure, error, summary with processed counts).
+   - Automated fill/exit processing: reconcileAll() processes all open PAPER
+     positions with active sell orders — fetches trusted quote, applies
+     deterministic fill rules, processes partial fills, updates positions,
+     evaluates T1/T2/stop conditions, persists state transitions, audits all.
+   - Restart recovery (runRestartRecovery): detects and repairs safe
+     inconsistencies — FILLED entry with missing position, CLOSED position
+     with active exits, remaining_qty inconsistent with fills, zero-remaining
+     OPEN position, sell-invariant violations. Ambiguous state →
+     MANUAL_INTERVENTION_REQUIRED. All repairs audit-logged.
+   - Sell-quantity invariant: total active sell qty <= remaining_qty,
+     verified after every reconciliation and restart recovery. Violation →
+     MANUAL_INTERVENTION_REQUIRED.
+   - APIs: GET /paper-reconciliation/status, POST /paper-reconciliation/run.
+   - Frontend: bounded auto-polling (15s) for active PAPER proposals +
+     visibility-aware pause/resume + manual "Reconcile PAPER" button.
+   - Tests: 179 focused tests (state machine, reconciliation, races, partial
+     fills, restart recovery, invariant, multi-fill cycle, no live broker).
+   - fast-review: fixed critical stale-position bug in multi-fill cycles,
+     increased Redis lock TTL, added cancelOrder state-machine assertion,
+     removed redundant assertion.
 
 6. Journal + reconciliation integration
 

@@ -49,6 +49,18 @@
       <span v-if="scanResult" class="text-xs text-gray-500 dark:text-gray-400">
         {{ scanResult }}
       </span>
+      <button
+        v-if="hasActivePaperProposals"
+        @click="triggerReconciliation"
+        :disabled="reconcileLoading"
+        class="px-3 py-2 rounded-lg text-xs font-semibold border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50"
+        title="Manually trigger PAPER reconciliation (fills, exits, recovery)"
+      >
+        {{ reconcileLoading ? 'Reconciling…' : 'Reconcile PAPER' }}
+      </button>
+      <span v-if="reconcileResult" class="text-xs text-gray-500 dark:text-gray-400">
+        {{ reconcileResult }}
+      </span>
     </div>
 
     <!-- Loading -->
@@ -474,7 +486,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import api from '@/services/api'
 
 const proposals = ref([])
@@ -496,6 +508,8 @@ const paperPosition = ref(null)
 const paperOrders = ref(null)
 const unrealizedPnl = ref(null)
 const stopUpdateForm = reactive({ stopPrice: null })
+const reconcileLoading = ref(false)
+const reconcileResult = ref('')
 
 const filters = reactive({
   status: '',
@@ -537,10 +551,61 @@ const lifecycleStates = [
   'ERROR'
 ]
 
+const PAPER_ACTIVE_STATES = [
+  'ENTRY_SUBMITTED', 'ENTRY_PARTIALLY_FILLED', 'ENTRY_FILLED',
+  'POSITION_ACTIVE', 'T1_FILLED', 'T2_FILLED'
+]
+
+const POLL_INTERVAL_MS = 15000
+let pollTimer = null
+
+const hasActivePaperProposals = computed(() =>
+  proposals.value.some((p) =>
+    PAPER_ACTIVE_STATES.includes(p.lifecycle_state) && p.execution_mode === 'PAPER'
+  )
+)
+
+async function pollActivePaper() {
+  if (document.hidden) return
+  await fetchProposals()
+  const p = selectedProposal.value
+  if (p && PAPER_ACTIVE_STATES.includes(p.lifecycle_state) && p.execution_mode === 'PAPER') {
+    await fetchPaperPosition(p.id)
+    await fetchRiskEvaluation(p.id)
+  }
+}
+
+function startAutoPoll() {
+  if (pollTimer) return
+  pollTimer = setInterval(pollActivePaper, POLL_INTERVAL_MS)
+}
+
+function stopAutoPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    stopAutoPoll()
+  } else {
+    pollActivePaper()
+    startAutoPoll()
+  }
+}
+
 onMounted(() => {
   fetchProposals()
   fetchStrategies()
   fetchRiskPresets()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onUnmounted(() => {
+  stopAutoPoll()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 async function fetchRiskPresets() {
@@ -588,6 +653,12 @@ async function fetchProposals() {
     if (filters.symbol) params.symbol = filters.symbol.toUpperCase()
     const { data } = await api.get('/trading/proposals', { params })
     proposals.value = data.proposals || []
+    // Start/stop auto-poll based on whether there are active PAPER proposals
+    if (hasActivePaperProposals.value) {
+      startAutoPoll()
+    } else {
+      stopAutoPoll()
+    }
   } catch (err) {
     error.value = err?.response?.data?.error || err?.message || 'Request failed'
     proposals.value = []
@@ -798,6 +869,29 @@ function getEntryLow(zone) {
 function getEntryHigh(zone) {
   if (!zone) return null
   return zone.high ?? zone.max ?? zone.entry ?? null
+}
+
+async function triggerReconciliation() {
+  reconcileLoading.value = true
+  reconcileResult.value = ''
+  try {
+    const { data } = await api.post('/trading/paper-reconciliation/run')
+    const parts = []
+    if (data.repairs) parts.push(`${data.repairs} repairs`)
+    if (data.positionsProcessed) parts.push(`${data.positionsProcessed} positions`)
+    if (data.fillsApplied) parts.push(`${data.fillsApplied} fills`)
+    if (data.manualInterventions) parts.push(`${data.manualInterventions} interventions`)
+    reconcileResult.value = parts.length ? `PAPER: ${parts.join(', ')}` : 'PAPER: no changes'
+    await fetchProposals()
+    const p = selectedProposal.value
+    if (p && PAPER_ACTIVE_STATES.includes(p.lifecycle_state)) {
+      await fetchPaperPosition(p.id)
+    }
+  } catch (err) {
+    reconcileResult.value = err?.response?.data?.error || 'Reconciliation failed'
+  } finally {
+    reconcileLoading.value = false
+  }
 }
 
 function formatPrice(v) {
