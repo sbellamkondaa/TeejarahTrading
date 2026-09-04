@@ -31,4 +31,16 @@ router.post('/proposals/:id/risk-assessment', tradingController.assessProposalRi
 router.get('/proposals/:id/risk-evaluation', tradingController.getProposalRisk);
 router.get('/risk-presets', tradingController.getRiskPresets);
 
+// Paper trading
+router.post('/proposals/:id/paper-entry', tradingController.paperEntry);
+router.post('/proposals/:id/paper-fills', tradingController.paperProcessFills);
+router.post('/proposals/:id/paper-cancel-entry', tradingController.paperCancelEntry);
+router.patch('/proposals/:id/paper-stop', tradingController.paperUpdateStop);
+router.post('/proposals/:id/paper-manual-close', tradingController.paperManualClose);
+router.get('/proposals/:id/paper-reconcile', tradingController.paperReconcile);
+router.get('/proposals/:id/paper-position', tradingController.getPaperPosition);
+router.get('/paper-positions', tradingController.listPaperPositions);
+router.get('/paper-orders', tradingController.listPaperOrders);
+router.get('/paper-account', tradingController.getPaperAccount);
+
 module.exports = router;

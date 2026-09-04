@@ -28,7 +28,17 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   transitionProposal: jest.fn(),
   assessProposalRisk: jest.fn(),
   getProposalRisk: jest.fn(),
-  getRiskPresets: jest.fn()
+  getRiskPresets: jest.fn(),
+  paperEntry: jest.fn(),
+  paperProcessFills: jest.fn(),
+  paperCancelEntry: jest.fn(),
+  paperUpdateStop: jest.fn(),
+  paperManualClose: jest.fn(),
+  paperReconcile: jest.fn(),
+  getPaperPosition: jest.fn(),
+  listPaperPositions: jest.fn(),
+  listPaperOrders: jest.fn(),
+  getPaperAccount: jest.fn()
 }));
 
 const express = require('express');
@@ -58,8 +68,13 @@ describe('trading.routes wiring', () => {
     const paths = getCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual([
       '/execution-mode',
+      '/paper-account',
+      '/paper-orders',
+      '/paper-positions',
       '/proposals',
       '/proposals/:id',
+      '/proposals/:id/paper-position',
+      '/proposals/:id/paper-reconcile',
       '/proposals/:id/risk-evaluation',
       '/risk-presets',
       '/signals',
@@ -74,6 +89,10 @@ describe('trading.routes wiring', () => {
     expect(paths.sort()).toEqual([
       '/proposals',
       '/proposals/:id/approval',
+      '/proposals/:id/paper-cancel-entry',
+      '/proposals/:id/paper-entry',
+      '/proposals/:id/paper-fills',
+      '/proposals/:id/paper-manual-close',
       '/proposals/:id/risk-assessment',
       '/proposals/:id/transition',
       '/strategies',
@@ -84,6 +103,6 @@ describe('trading.routes wiring', () => {
 
   test('all expected PATCH endpoints are registered', () => {
     const paths = patchCalls.map((args) => args[0]);
-    expect(paths.sort()).toEqual(['/proposals/:id', '/strategies/:id/status']);
+    expect(paths.sort()).toEqual(['/proposals/:id', '/proposals/:id/paper-stop', '/strategies/:id/status']);
   });
 });

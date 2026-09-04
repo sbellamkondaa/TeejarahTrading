@@ -352,6 +352,122 @@
             class="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
           >Edit</button>
         </div>
+
+        <!-- Paper trading: entry -->
+        <div v-if="canPaperEntry && !editing" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">PAPER</span>
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Execution Simulator</span>
+          </div>
+          <button
+            @click="paperEntry"
+            :disabled="actionLoading"
+            class="px-4 py-2 rounded-lg text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+          >Execute Paper Entry</button>
+          <p class="mt-1 text-xs text-gray-400">Simulated fill at current market ask. No live broker order.</p>
+        </div>
+
+        <!-- Paper trading: pending entry (SUBMITTED but not filled) -->
+        <div v-if="selectedProposal && selectedProposal.lifecycle_state === 'ENTRY_SUBMITTED'" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">PAPER</span>
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Entry Pending</span>
+          </div>
+          <div class="flex gap-2">
+            <button
+              @click="paperProcessFills"
+              :disabled="actionLoading"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-900/60 disabled:opacity-50"
+            >Check Fills</button>
+            <button
+              @click="paperCancelEntry"
+              :disabled="actionLoading"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 disabled:opacity-50"
+            >Cancel Entry</button>
+          </div>
+        </div>
+
+        <!-- Paper trading: position + exits -->
+        <div v-if="canPaperExit && paperPosition" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">PAPER</span>
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Position</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div>
+              <div class="text-gray-400 text-xs">Entry Price</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(paperPosition.avg_entry_price) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Total Qty</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ paperPosition.total_qty }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Remaining</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ paperPosition.remaining_qty }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Realized P&L</div>
+              <div class="text-mono-num" :class="Number(paperPosition.realized_pnl) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                {{ formatPrice(paperPosition.realized_pnl) }}
+              </div>
+            </div>
+            <div v-if="unrealizedPnl != null">
+              <div class="text-gray-400 text-xs">Unrealized P&L</div>
+              <div class="text-mono-num" :class="unrealizedPnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                {{ formatPrice(unrealizedPnl) }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Paper orders -->
+          <div v-if="paperOrders && paperOrders.length" class="mt-3">
+            <div class="text-xs text-gray-400 mb-1">Paper Orders</div>
+            <div class="space-y-1">
+              <div v-for="o in paperOrders" :key="o.id" class="text-xs flex items-center gap-2 py-0.5">
+                <span class="font-mono text-gray-500">{{ o.order_type }}</span>
+                <span class="text-gray-400">{{ o.side }}</span>
+                <span class="text-mono-num text-gray-600 dark:text-gray-300">{{ o.filled_qty || 0 }}/{{ o.quantity }}</span>
+                <span v-if="o.avg_fill_price" class="text-mono-num text-gray-600 dark:text-gray-300">@ {{ formatPrice(o.avg_fill_price) }}</span>
+                <span
+                  class="inline-flex px-1.5 py-0.5 rounded text-xs font-medium"
+                  :class="orderStatusClass(o.status)"
+                >{{ o.status }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Exit actions -->
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              @click="paperProcessFills"
+              :disabled="actionLoading"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-900/60 disabled:opacity-50"
+            >Check Fills</button>
+            <button
+              @click="paperManualClose"
+              :disabled="actionLoading"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+            >Manual Close</button>
+          </div>
+
+          <!-- Update stop -->
+          <div v-if="selectedProposal.lifecycle_state !== 'POSITION_CLOSED'" class="mt-3 flex items-center gap-2">
+            <label class="text-xs text-gray-400">Update Stop</label>
+            <input
+              v-model.number="stopUpdateForm.stopPrice"
+              type="number"
+              step="0.01"
+              class="input w-28 text-sm"
+              :placeholder="formatPrice(selectedProposal.stop_price)"
+            />
+            <button
+              @click="paperUpdateStop"
+              :disabled="actionLoading || !stopUpdateForm.stopPrice"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 disabled:opacity-50"
+            >Update Stop</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -376,6 +492,10 @@ const riskStale = ref(false)
 const riskLoading = ref(false)
 const riskPresets = ref([0.25, 0.5, 1.0])
 const selectedPreset = ref(1.0)
+const paperPosition = ref(null)
+const paperOrders = ref(null)
+const unrealizedPnl = ref(null)
+const stopUpdateForm = reactive({ stopPrice: null })
 
 const filters = reactive({
   status: '',
@@ -389,6 +509,18 @@ const canAct = computed(() => {
 })
 
 const canEdit = computed(() => canAct.value)
+
+const canPaperEntry = computed(() => {
+  const p = selectedProposal.value
+  if (!p) return false
+  return p.lifecycle_state === 'APPROVED' && p.execution_mode === 'PAPER'
+})
+
+const canPaperExit = computed(() => {
+  const p = selectedProposal.value
+  if (!p) return false
+  return ['ENTRY_FILLED', 'POSITION_ACTIVE', 'T1_FILLED', 'T2_FILLED'].includes(p.lifecycle_state)
+})
 
 const lifecycleStates = [
   'READY_FOR_APPROVAL',
@@ -469,6 +601,7 @@ async function openDetail(id) {
     const { data } = await api.get(`/trading/proposals/${id}`)
     selectedProposal.value = data
     await fetchRiskEvaluation(id)
+    await fetchPaperPosition(id)
   } catch (err) {
     error.value = err?.response?.data?.error || 'Failed to load proposal'
   }
@@ -508,6 +641,7 @@ async function recalculateRisk() {
 
 function closeDetail() {
   selectedProposal.value = null
+  paperPosition.value = null
   editing.value = false
 }
 
@@ -546,6 +680,113 @@ async function saveEdit() {
     error.value = err?.response?.data?.error || 'Failed to save edit'
   } finally {
     actionLoading.value = false
+  }
+}
+
+async function fetchPaperPosition(id) {
+  paperPosition.value = null
+  paperOrders.value = null
+  unrealizedPnl.value = null
+  try {
+    const { data } = await api.get(`/trading/proposals/${id}/paper-position`)
+    paperPosition.value = data.position
+    paperOrders.value = data.orders
+    unrealizedPnl.value = data.unrealized_pnl ?? null
+  } catch {
+    // no position yet
+  }
+}
+
+async function paperEntry() {
+  const p = selectedProposal.value
+  if (!p) return
+  actionLoading.value = true
+  try {
+    await api.post(`/trading/proposals/${p.id}/paper-entry`)
+    await openDetail(p.id)
+    await fetchPaperPosition(p.id)
+    await fetchProposals()
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Paper entry failed'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function paperProcessFills() {
+  const p = selectedProposal.value
+  if (!p) return
+  actionLoading.value = true
+  try {
+    await api.post(`/trading/proposals/${p.id}/paper-fills`)
+    await openDetail(p.id)
+    await fetchPaperPosition(p.id)
+    await fetchProposals()
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Process fills failed'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function paperCancelEntry() {
+  const p = selectedProposal.value
+  if (!p) return
+  actionLoading.value = true
+  try {
+    await api.post(`/trading/proposals/${p.id}/paper-cancel-entry`)
+    await openDetail(p.id)
+    await fetchPaperPosition(p.id)
+    await fetchProposals()
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Cancel entry failed'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function paperUpdateStop() {
+  const p = selectedProposal.value
+  if (!p || !stopUpdateForm.stopPrice) return
+  actionLoading.value = true
+  try {
+    await api.patch(`/trading/proposals/${p.id}/paper-stop`, { stopPrice: stopUpdateForm.stopPrice })
+    stopUpdateForm.stopPrice = null
+    await openDetail(p.id)
+    await fetchPaperPosition(p.id)
+    await fetchProposals()
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Update stop failed'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function paperManualClose() {
+  const p = selectedProposal.value
+  if (!p) return
+  actionLoading.value = true
+  try {
+    await api.post(`/trading/proposals/${p.id}/paper-manual-close`)
+    await openDetail(p.id)
+    await fetchPaperPosition(p.id)
+    await fetchProposals()
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Manual close failed'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+function orderStatusClass(status) {
+  switch (status) {
+    case 'FILLED': return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+    case 'SUBMITTED': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+    case 'PARTIALLY_FILLED': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    case 'CANCELLED': return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+    case 'REJECTED':
+    case 'EXPIRED': return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+    default: return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
   }
 }
 

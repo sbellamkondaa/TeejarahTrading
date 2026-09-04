@@ -7,6 +7,7 @@ const auditService = require('../services/trading/auditService');
 const executionMode = require('../services/trading/executionMode');
 const { runScan: runCatalystMomentumScan, STRATEGY_NAME: CATALYST_STRATEGY_NAME } = require('../services/trading/catalystMomentumStrategy');
 const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, getLatestEvaluation, isEvaluationStale, DEFAULT_RISK_CONFIG, RISK_PRESETS } = require('../services/trading/riskEngine');
+const paperBroker = require('../services/trading/paperBroker');
 
 // --- Execution mode ---
 
@@ -310,6 +311,129 @@ async function getRiskPresets(req, res) {
   });
 }
 
+// --- Paper trading ---
+
+async function paperEntry(req, res) {
+  try {
+    const result = await paperBroker.submitEntry(req.params.id, req.user.id, req.body?.options || {});
+    return res.json(result);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('must be') || err.message.includes('requires') || err.message.includes('disabled') || err.message.includes('missing') || err.message.includes('stale') || err.message.includes('REJECTED') || err.message.includes('No quote') || err.message.includes('Cannot determine')) {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('[TRADING] paperEntry error: ' + err.message);
+    return res.status(500).json({ error: 'Paper entry failed' });
+  }
+}
+
+async function paperProcessFills(req, res) {
+  try {
+    const result = await paperBroker.processFills(req.params.id, req.user.id, req.body?.options || {});
+    return res.json(result);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('Cannot') || err.message.includes('No ')) {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('[TRADING] paperProcessFills error: ' + err.message);
+    return res.status(500).json({ error: 'Process fills failed' });
+  }
+}
+
+async function paperCancelEntry(req, res) {
+  try {
+    const result = await paperBroker.cancelEntry(req.params.id, req.user.id);
+    return res.json(result);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('already filled') || err.message.includes('No entry')) {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('[TRADING] paperCancelEntry error: ' + err.message);
+    return res.status(500).json({ error: 'Cancel entry failed' });
+  }
+}
+
+async function paperUpdateStop(req, res) {
+  const { stopPrice } = req.body || {};
+  if (stopPrice == null || !Number.isFinite(Number(stopPrice)) || Number(stopPrice) <= 0) {
+    return res.status(400).json({ error: 'stopPrice must be a positive number' });
+  }
+  try {
+    const result = await paperBroker.updateStop(req.params.id, Number(stopPrice), req.user.id);
+    return res.json(result);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('No open') || err.message.includes('Invalid') || err.message.includes('must be') || err.message.includes('No remaining')) {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('[TRADING] paperUpdateStop error: ' + err.message);
+    return res.status(500).json({ error: 'Update stop failed' });
+  }
+}
+
+async function paperManualClose(req, res) {
+  try {
+    const result = await paperBroker.manualClose(req.params.id, req.user.id);
+    return res.json(result);
+  } catch (err) {
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('No open') || err.message.includes('No valid') || err.message.includes('No remaining') || err.message.includes('Cannot')) {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('[TRADING] paperManualClose error: ' + err.message);
+    return res.status(500).json({ error: 'Manual close failed' });
+  }
+}
+
+async function paperReconcile(req, res) {
+  const result = await paperBroker.reconcile(req.params.id);
+  return res.json(result);
+}
+
+async function getPaperPosition(req, res) {
+  const position = await paperBroker.getPosition(req.params.id);
+  if (!position) return res.status(404).json({ error: 'No paper position for this proposal' });
+  const orders = await paperBroker.getOrders(req.params.id);
+  let unrealizedPnl = null;
+  try {
+    const proposal = await proposalService.getById(req.params.id);
+    if (proposal) {
+      const quote = await require('../../utils/finnhub').getQuote(proposal.symbol);
+      unrealizedPnl = await paperBroker.getUnrealizedPnl(position, quote);
+    }
+  } catch { /* ignore */ }
+  return res.json({ position, orders, unrealized_pnl: unrealizedPnl });
+}
+
+async function listPaperPositions(req, res) {
+  const { status } = req.query;
+  const positions = await paperBroker.listPositions({ status });
+  return res.json({ positions, count: positions.length });
+}
+
+async function listPaperOrders(req, res) {
+  const { status, proposalId } = req.query;
+  const orders = await paperBroker.listOrders({ status, proposalId });
+  return res.json({ orders, count: orders.length });
+}
+
+async function getPaperAccount(req, res) {
+  const summary = await paperBroker.getAccountSummary();
+  return res.json(summary);
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -328,5 +452,15 @@ module.exports = {
   runStrategyScan: asyncHandler(runStrategyScan),
   assessProposalRisk: asyncHandler(assessProposalRisk),
   getProposalRisk: asyncHandler(getProposalRisk),
-  getRiskPresets: asyncHandler(getRiskPresets)
+  getRiskPresets: asyncHandler(getRiskPresets),
+  paperEntry: asyncHandler(paperEntry),
+  paperProcessFills: asyncHandler(paperProcessFills),
+  paperCancelEntry: asyncHandler(paperCancelEntry),
+  paperUpdateStop: asyncHandler(paperUpdateStop),
+  paperManualClose: asyncHandler(paperManualClose),
+  paperReconcile: asyncHandler(paperReconcile),
+  getPaperPosition: asyncHandler(getPaperPosition),
+  listPaperPositions: asyncHandler(listPaperPositions),
+  listPaperOrders: asyncHandler(listPaperOrders),
+  getPaperAccount: asyncHandler(getPaperAccount)
 };
