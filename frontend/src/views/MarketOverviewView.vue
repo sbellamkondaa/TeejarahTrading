@@ -65,13 +65,13 @@
     <section class="mt-8">
       <div class="flex items-center justify-between mb-3">
         <h2 class="heading-section">Trading Halts</h2>
-        <button
+        <router-link
           v-if="haltsState.data && haltsState.data.length"
-          @click="viewAllHalts = !viewAllHalts"
+          to="/market/halts"
           class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
         >
-          {{ viewAllHalts ? 'Show recent' : 'View all' }}
-        </button>
+          View all
+        </router-link>
       </div>
       <div v-if="haltsState.loading" class="flex justify-center py-8">
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
@@ -95,7 +95,7 @@
               </thead>
               <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
                 <tr
-                  v-for="halt in displayedHalts"
+                  v-for="halt in haltsState.data"
                   :key="halt.symbol + halt.halted_at + halt.halt_type"
                   class="hover:bg-gray-50 dark:hover:bg-gray-800/40"
                 >
@@ -266,20 +266,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import api from '@/services/api'
-
-const HALTS_INITIAL_LIMIT = 10
-
-const viewAllHalts = ref(false)
 
 const indicesState = reactive({ loading: false, error: null, data: null })
 const haltsState = reactive({ loading: false, error: null, data: null })
 const newsState = reactive({ loading: false, error: null, data: null })
 const earningsState = reactive({ loading: false, error: null, data: null, fetched_at: null })
 const filingsState = reactive({ loading: false, error: null, data: null })
-
-const displayedHalts = ref([])
 
 async function fetchIndices() {
   indicesState.loading = true
@@ -298,9 +292,8 @@ async function fetchHalts() {
   haltsState.loading = true
   haltsState.error = null
   try {
-    const { data } = await api.get('/market/halts', { params: { limit: 50 } })
+    const { data } = await api.get('/market/halts', { params: { limit: 10 } })
     haltsState.data = data.halts
-    displayedHalts.value = data.halts.slice(0, HALTS_INITIAL_LIMIT)
   } catch (err) {
     haltsState.error = err?.response?.data?.error || err?.message || 'Request failed'
   } finally {
@@ -347,12 +340,6 @@ async function fetchFilings() {
     filingsState.loading = false
   }
 }
-
-// Re-evaluate the halts slice when toggling "view all".
-watch(viewAllHalts, (all) => {
-  if (!haltsState.data) return
-  displayedHalts.value = all ? haltsState.data : haltsState.data.slice(0, HALTS_INITIAL_LIMIT)
-})
 
 function formatPrice(value) {
   if (value == null || !Number.isFinite(Number(value))) return '—'

@@ -65,13 +65,15 @@ describe('market.controller', () => {
   });
 
   describe('getHalts', () => {
-    test('returns halts newest first with status derived from is_resumption', async () => {
+    test('returns halts newest first with status derived from is_resumption, plus reason_description and last_updated', async () => {
       db.query.mockResolvedValue({
         rows: [
           { symbol: 'AAPL', halt_type: 'LUDP', reason: 'LUDP', exchange: 'NASDAQ',
-            halted_at: '2026-09-04T13:30:54Z', resume_at: null, is_resumption: false },
+            halted_at: '2026-09-04T13:30:54Z', resume_at: null, is_resumption: false,
+            issue_name: 'Apple Inc.', created_at: '2026-09-04T13:31:00Z' },
           { symbol: 'MSFT', halt_type: 'LUDP', reason: 'LUDP', exchange: 'ARCA',
-            halted_at: '2026-09-03T14:11:22Z', resume_at: '2026-09-03T14:25:30Z', is_resumption: true }
+            halted_at: '2026-09-03T14:11:22Z', resume_at: '2026-09-03T14:25:30Z', is_resumption: true,
+            issue_name: null, created_at: '2026-09-03T14:12:00Z' }
         ]
       });
       const res = mockRes();
@@ -79,15 +81,18 @@ describe('market.controller', () => {
       expect(db.query).toHaveBeenCalledWith(expect.any(String), [10]);
       expect(res.body.halts).toHaveLength(2);
       expect(res.body.halts[0].status).toBe('halted');
+      expect(res.body.halts[0].issue_name).toBe('Apple Inc.');
+      expect(res.body.halts[0].reason_description).toBe('Limit up / limit down pause');
       expect(res.body.halts[1].status).toBe('resumed');
       expect(res.body.halts[1].resume_at).toBe('2026-09-03T14:25:30Z');
+      expect(res.body.last_updated).toBe('2026-09-04T13:31:00Z');
     });
 
-    test('clamps limit to max 50 and defaults to 10', async () => {
+    test('clamps limit to max 100 and defaults to 10', async () => {
       db.query.mockResolvedValue({ rows: [] });
       const res = mockRes();
       await controller.getHalts({ query: { limit: '999' } }, res);
-      expect(db.query.mock.calls[0][1][0]).toBe(50);
+      expect(db.query.mock.calls[0][1][0]).toBe(100);
       await controller.getHalts({ query: {} }, res);
       expect(db.query.mock.calls[1][1][0]).toBe(10);
     });
@@ -97,6 +102,98 @@ describe('market.controller', () => {
       const res = mockRes();
       await controller.getHalts({ query: { limit: 'abc' } }, res);
       expect(db.query.mock.calls[0][1][0]).toBe(10);
+    });
+
+    test('status=halted filter adds is_resumption=false condition', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { status: 'halted' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain('is_resumption = false');
+      expect(params[0]).toBe(10); // limit is the only param
+    });
+
+    test('status=resumed filter adds is_resumption=true condition', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { status: 'resumed' } }, res);
+      const [sql] = db.query.mock.calls[0];
+      expect(sql).toContain('is_resumption = true');
+    });
+
+    test('market filter parameterizes UPPER(exchange)', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { market: 'nasdaq' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain('UPPER(exchange) = $1');
+      expect(params[0]).toBe('NASDAQ');
+      expect(params[1]).toBe(10);
+    });
+
+    test('reason filter parameterizes UPPER(halt_type)', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { reason: 'ludp' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain('UPPER(halt_type) = $1');
+      expect(params[0]).toBe('LUDP');
+    });
+
+    test('symbol filter parameterizes UPPER(symbol) and uppercases input', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { symbol: 'aapl' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain('UPPER(symbol) = $1');
+      expect(params[0]).toBe('AAPL');
+    });
+
+    test('combined filters stack with AND and order params correctly', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { status: 'halted', market: 'nasdaq', reason: 't1', symbol: 'aapl' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).toContain('is_resumption = false');
+      expect(sql).toContain('UPPER(exchange) = $1');
+      expect(sql).toContain('UPPER(halt_type) = $2');
+      expect(sql).toContain('UPPER(symbol) = $3');
+      expect(params[0]).toBe('NASDAQ');
+      expect(params[1]).toBe('T1');
+      expect(params[2]).toBe('AAPL');
+      expect(params[3]).toBe(10); // limit is last
+    });
+
+    test('invalid status value is ignored (no filter applied)', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { status: 'bogus' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).not.toContain('is_resumption');
+      expect(params[0]).toBe(10);
+    });
+
+    test('empty filter values are ignored', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      const res = mockRes();
+      await controller.getHalts({ query: { market: '', reason: '   ', symbol: '' } }, res);
+      const [sql, params] = db.query.mock.calls[0];
+      expect(sql).not.toContain('WHERE');
+      expect(params[0]).toBe(10);
+    });
+
+    test('unknown reason codes get null reason_description (no guessing)', async () => {
+      db.query.mockResolvedValue({
+        rows: [{
+          symbol: 'XYZ', halt_type: 'ZZZ', reason: 'ZZZ', exchange: 'NASDAQ',
+          halted_at: '2026-09-04T13:30:54Z', resume_at: null, is_resumption: false,
+          issue_name: null, created_at: '2026-09-04T13:31:00Z'
+        }]
+      });
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(res.body.halts[0].halt_type).toBe('ZZZ');
+      expect(res.body.halts[0].reason_description).toBeNull();
     });
   });
 

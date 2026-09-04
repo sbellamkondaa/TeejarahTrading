@@ -500,7 +500,14 @@ const navItems = computed(() => {
       ]
     },
     { name: 'Trades', icon: ChartBarSquareIcon, to: '/trades', route: 'trades' },
-    { name: 'Market', icon: ChartPieIcon, to: '/market', route: 'market-overview' },
+    {
+      name: 'Market',
+      icon: ChartPieIcon,
+      items: [
+        { name: 'Overview', to: '/market', route: 'market-overview' },
+        { name: 'Trading Halts', to: '/market/halts', route: 'market-halts' }
+      ]
+    },
     {
       name: 'Metrics',
       icon: PresentationChartLineIcon,

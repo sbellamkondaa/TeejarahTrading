@@ -3,6 +3,7 @@ const finnhub = require('../utils/finnhub');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
+const { describeHaltReasonCode } = require('../services/nasdaq/haltReasonCodes');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -19,13 +20,22 @@ const OVERVIEW_FORM_TYPES = [
   '10-K/A', '10-Q/A', '8-K/A'
 ];
 
-const MAX_LIMIT = 50;
+const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 10;
 
 function parseLimit(value) {
   const n = parseInt(value, 10);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
   return Math.min(n, MAX_LIMIT);
+}
+
+// Coerce a query param to a trimmed, uppercased single token or null. Used for
+// status/market/reason/symbol filters; bounded length prevents abuse.
+function parseToken(value, maxLength = 32) {
+  if (value == null) return null;
+  const s = String(value).trim().toUpperCase();
+  if (!s || s.length > maxLength) return null;
+  return s;
 }
 
 function numberOrNull(value) {
@@ -64,9 +74,46 @@ async function getIndices(req, res) {
   return res.json({ indices, fetched_at: Date.now() });
 }
 
-// GET /api/market/halts?limit=10
+// GET /api/market/halts?limit=100&status=halted|resumed&market=NASDAQ&reason=LUDP&symbol=AAPL
 async function getHalts(req, res) {
   const limit = parseLimit(req.query.limit);
+
+  const status = parseToken(req.query.status, 16);
+  const market = parseToken(req.query.market, 32);
+  const reason = parseToken(req.query.reason, 50);
+  const symbol = parseToken(req.query.symbol, 20);
+
+  // Build a parameterized WHERE clause from the provided filters.
+  const conditions = [];
+  const params = [];
+
+  if (status === 'HALTED') {
+    conditions.push('is_resumption = false');
+  } else if (status === 'RESUMED') {
+    conditions.push('is_resumption = true');
+  }
+
+  if (market) {
+    params.push(market);
+    conditions.push(`UPPER(exchange) = $${params.length}`);
+  }
+
+  if (reason) {
+    params.push(reason);
+    conditions.push(`UPPER(halt_type) = $${params.length}`);
+  }
+
+  if (symbol) {
+    params.push(symbol);
+    conditions.push(`UPPER(symbol) = $${params.length}`);
+  }
+
+  const whereClause = conditions.length
+    ? 'WHERE ' + conditions.join(' AND ')
+    : '';
+
+  params.push(limit);
+  const limitIndex = params.length;
 
   const result = await db.query(
     `SELECT
@@ -76,25 +123,40 @@ async function getHalts(req, res) {
        exchange,
        halted_at,
        resume_at,
-       is_resumption
+       is_resumption,
+       raw_payload->>'IssueName' AS issue_name,
+       created_at
      FROM market_halts
+     ${whereClause}
      ORDER BY halted_at DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT $${limitIndex}`,
+    params
   );
 
-  const halts = result.rows.map((row) => ({
-    symbol: row.symbol,
-    halt_type: row.halt_type,
-    reason: row.reason,
-    exchange: row.exchange,
-    halted_at: row.halted_at,
-    resume_at: row.resume_at,
-    is_resumption: row.is_resumption,
-    status: row.is_resumption ? 'resumed' : 'halted'
-  }));
+  const halts = result.rows.map((row) => {
+    const resumed = Boolean(row.is_resumption);
+    return {
+      symbol: row.symbol,
+      issue_name: row.issue_name || null,
+      halt_type: row.halt_type,
+      reason: row.reason,
+      reason_description: describeHaltReasonCode(row.halt_type),
+      exchange: row.exchange,
+      halted_at: row.halted_at,
+      resume_at: row.resume_at,
+      is_resumption: resumed,
+      status: resumed ? 'resumed' : 'halted'
+    };
+  });
 
-  return res.json({ halts, count: halts.length });
+  // Freshness: most recent row's created_at reflects the last successful ingest
+  // of the filtered set. The market_halts table has no updated_at column; the
+  // upsert ON CONFLICT path does not bump a timestamp, so created_at (set at
+  // insert time) is the best available freshness signal.
+  const latestRow = result.rows[0];
+  const lastUpdated = latestRow ? latestRow.created_at || null : null;
+
+  return res.json({ halts, count: halts.length, last_updated: lastUpdated });
 }
 
 // GET /api/market/news?limit=15

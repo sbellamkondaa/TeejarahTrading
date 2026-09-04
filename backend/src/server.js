@@ -93,6 +93,7 @@ const edgeReportScheduler = require('./services/edgeReportScheduler');
 const activityTrackingService = require('./services/activityTrackingService');
 const engagementScheduler = require('./services/engagementScheduler');
 const secIngestionScheduler = require('./services/sec/secIngestionScheduler');
+const nasdaqHaltScheduler = require('./services/nasdaq/nasdaqHaltScheduler');
 const activityTrackingMiddleware = require('./middleware/activityTracking');
 const emailTrackingRoutes = require('./routes/emailTracking.routes');
 const backgroundWorker = require('./workers/backgroundWorker');
@@ -802,6 +803,18 @@ function scheduleBackgroundServices(backgroundJobsDisabled) {
     console.log('Engagement tracking disabled (ENABLE_ENGAGEMENT_TRACKING=false)');
   }
 
+  if (backgroundJobsDisabled) {
+    console.log('Nasdaq halt scheduler disabled (DISABLE_BACKGROUND_JOBS=true)');
+  } else if (process.env.ENABLE_NASDAQ_HALT_SCHEDULER === 'true') {
+    defer('nasdaq-halt-scheduler', () => {
+      console.log('Starting Nasdaq halt scheduler...');
+      nasdaqHaltScheduler.start();
+      console.log('[SUCCESS] Nasdaq halt scheduler started');
+    });
+  } else {
+    console.log('Nasdaq halt scheduler disabled (ENABLE_NASDAQ_HALT_SCHEDULER=false)');
+  }
+
   if (process.env.ENABLE_PUSH_NOTIFICATIONS === 'true') {
     console.log('Push notification service loaded');
   } else {
@@ -1009,6 +1022,7 @@ process.on('SIGTERM', async () => {
   backupScheduler.stopAll();
   stockScannerScheduler.stop();
   watchlistPillarsScheduler.stop();
+  nasdaqHaltScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);
@@ -1036,6 +1050,7 @@ process.on('SIGINT', async () => {
   backupScheduler.stopAll();
   stockScannerScheduler.stop();
   watchlistPillarsScheduler.stop();
+  nasdaqHaltScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);

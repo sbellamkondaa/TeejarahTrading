@@ -292,6 +292,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/market/halts',
+      name: 'market-halts',
+      component: () => import('@/views/TradingHaltsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/u/:username',
       name: 'user-profile',
       component: () => import('@/views/UserProfileView.vue')
