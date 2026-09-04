@@ -1,11 +1,17 @@
 jest.mock('../../src/services/nasdaq/nasdaqClient', () => ({
   fetchAndIngestNasdaqHalts: jest.fn()
 }));
+jest.mock('../../src/services/schedulerStatusService', () => ({
+  recordStarted: jest.fn(),
+  recordSuccess: jest.fn(),
+  recordFailure: jest.fn()
+}));
 jest.mock('../../src/services/schedulers/IntervalScheduler');
 
 const nasdaqClient = require('../../src/services/nasdaq/nasdaqClient');
+const SchedulerStatusService = require('../../src/services/schedulerStatusService');
 const IntervalScheduler = require('../../src/services/schedulers/IntervalScheduler');
-const { isSchedulerEnabled, getIntervalSeconds, NasdaqHaltScheduler, MIN_INTERVAL_SECONDS } = require('../../src/services/nasdaq/nasdaqHaltScheduler');
+const { isSchedulerEnabled, getIntervalSeconds, NasdaqHaltScheduler, SCHEDULER_NAME, MIN_INTERVAL_SECONDS } = require('../../src/services/nasdaq/nasdaqHaltScheduler');
 
 describe('nasdaqHaltScheduler', () => {
   const originalEnv = { ...process.env };
@@ -80,29 +86,67 @@ describe('nasdaqHaltScheduler', () => {
       expect(opts.intervalMs).toBe(60000);
     });
 
-    test('execute calls fetchAndIngestNasdaqHalts and records result', async () => {
+    test('execute calls fetchAndIngestNasdaqHalts and records result + scheduler status', async () => {
       nasdaqClient.fetchAndIngestNasdaqHalts.mockResolvedValue({ ok: true, fetched: 5, inserted: 2, skipped: 3 });
-      // Construct a fresh instance to avoid the shared singleton's state.
-      const sched = new (require('../../src/services/nasdaq/nasdaqHaltScheduler').NasdaqHaltScheduler)();
+      const sched = new NasdaqHaltScheduler();
       const result = await sched.execute();
       expect(nasdaqClient.fetchAndIngestNasdaqHalts).toHaveBeenCalled();
       expect(result.ok).toBe(true);
       expect(sched.lastResult).toEqual({ ok: true, fetched: 5, inserted: 2, skipped: 3 });
       expect(sched.lastRunAt).toBeInstanceOf(Date);
+      // Status recording: started + success called with the scheduler name.
+      expect(SchedulerStatusService.recordStarted).toHaveBeenCalledWith(SCHEDULER_NAME);
+      expect(SchedulerStatusService.recordSuccess).toHaveBeenCalledWith(SCHEDULER_NAME, {
+        fetched: 5, inserted: 2, skipped: 3
+      });
+      expect(SchedulerStatusService.recordFailure).not.toHaveBeenCalled();
+    });
+
+    test('execute records failure status when ingest returns not-ok', async () => {
+      nasdaqClient.fetchAndIngestNasdaqHalts.mockResolvedValue({ ok: false, error: 'network' });
+      const sched = new NasdaqHaltScheduler();
+      await sched.execute();
+      expect(SchedulerStatusService.recordFailure).toHaveBeenCalled();
+      expect(SchedulerStatusService.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    test('execute records failure status and rethrows when fetchAndIngestNasdaqHalts rejects', async () => {
+      nasdaqClient.fetchAndIngestNasdaqHalts.mockRejectedValue(new Error('boom'));
+      const sched = new NasdaqHaltScheduler();
+      await expect(sched.execute()).rejects.toThrow('boom');
+      expect(SchedulerStatusService.recordFailure).toHaveBeenCalledWith(SCHEDULER_NAME, expect.any(Error));
+    });
+
+    test('status-recording failure does not crash execute on success path', async () => {
+      nasdaqClient.fetchAndIngestNasdaqHalts.mockResolvedValue({ ok: true, fetched: 1, inserted: 1, skipped: 0 });
+      SchedulerStatusService.recordSuccess.mockRejectedValueOnce(new Error('status db down'));
+      const sched = new NasdaqHaltScheduler();
+      await expect(sched.execute()).resolves.toEqual({ ok: true, fetched: 1, inserted: 1, skipped: 0 });
+    });
+
+    test('status-recording failure does not crash execute on failure path', async () => {
+      nasdaqClient.fetchAndIngestNasdaqHalts.mockResolvedValue({ ok: false, error: 'x' });
+      SchedulerStatusService.recordFailure.mockRejectedValueOnce(new Error('status db down'));
+      const sched = new NasdaqHaltScheduler();
+      await expect(sched.execute()).resolves.toEqual({ ok: false, error: 'x' });
     });
 
     test('execute does not throw when ingest returns not-ok (failure must not crash worker)', async () => {
       nasdaqClient.fetchAndIngestNasdaqHalts.mockResolvedValue({ ok: false, error: 'network' });
-      const sched = new (require('../../src/services/nasdaq/nasdaqHaltScheduler').NasdaqHaltScheduler)();
+      const sched = new NasdaqHaltScheduler();
       await expect(sched.execute()).resolves.toEqual({ ok: false, error: 'network' });
     });
 
     test('execute does not throw when fetchAndIngestNasdaqHalts rejects', async () => {
       nasdaqClient.fetchAndIngestNasdaqHalts.mockRejectedValue(new Error('boom'));
-      const sched = new (require('../../src/services/nasdaq/nasdaqHaltScheduler').NasdaqHaltScheduler)();
+      const sched = new NasdaqHaltScheduler();
       // execute() itself rejects here; the IntervalScheduler's runGuarded is what
       // catches it. We assert execute surfaces the rejection so the guard can catch it.
       await expect(sched.execute()).rejects.toThrow('boom');
+    });
+
+    test('exports SCHEDULER_NAME = "nasdaq-halts"', () => {
+      expect(SCHEDULER_NAME).toBe('nasdaq-halts');
     });
   });
 });

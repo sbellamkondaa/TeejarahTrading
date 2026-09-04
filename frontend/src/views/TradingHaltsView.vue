@@ -9,9 +9,17 @@
       <p class="mt-2 text-gray-600 dark:text-gray-400">
         Recent Nasdaq trading halts and resumptions. Sourced from the Nasdaq Trader RSS feed.
       </p>
-      <p v-if="lastUpdated" class="mt-1 text-xs text-gray-500 dark:text-gray-500">
-        Last updated: {{ formatDateTime(lastUpdated) }}
-        <span v-if="isStale" class="ml-1 text-amber-600 dark:text-amber-400">(stale)</span>
+      <p class="mt-1 text-xs text-gray-500 dark:text-gray-500">
+        <template v-if="freshness.scheduler_enabled && freshness.last_success_at">
+          Last updated: {{ formatDateTime(freshness.last_success_at) }}
+          <span v-if="isStale" class="ml-1 text-amber-600 dark:text-amber-400">(stale)</span>
+        </template>
+        <template v-else-if="freshness.scheduler_enabled">
+          Automatic updates on — no successful poll yet
+        </template>
+        <template v-else>
+          Automatic updates off
+        </template>
       </p>
     </div>
 
@@ -133,7 +141,12 @@ const router = useRouter()
 const halts = ref([])
 const loading = ref(false)
 const error = ref(null)
-const lastUpdated = ref(null)
+const freshness = reactive({
+  scheduler_enabled: false,
+  last_success_at: null,
+  last_failure_at: null,
+  last_error: null
+})
 
 const filters = reactive({
   status: '',
@@ -159,10 +172,14 @@ const reasonOptions = computed(() => {
   return Array.from(s).sort()
 })
 
-// Stale if no update in over 5 minutes.
+// Stale only when the scheduler is enabled and the last successful poll is
+// older than the configured interval window (use 2x interval as the threshold,
+// falling back to 5 minutes). When the scheduler is disabled, data is never
+// labeled stale — it simply shows "Automatic updates off".
 const isStale = computed(() => {
-  if (!lastUpdated.value) return false
-  return Date.now() - new Date(lastUpdated.value).getTime() > 5 * 60 * 1000
+  if (!freshness.scheduler_enabled || !freshness.last_success_at) return false
+  const thresholdMs = 5 * 60 * 1000
+  return Date.now() - new Date(freshness.last_success_at).getTime() > thresholdMs
 })
 
 let symbolDebounce = null
@@ -203,7 +220,12 @@ async function fetchHalts() {
     if (filters.symbol) params.symbol = filters.symbol
     const { data } = await api.get('/market/halts', { params })
     halts.value = data.halts || []
-    lastUpdated.value = data.last_updated || null
+    if (data.freshness) {
+      freshness.scheduler_enabled = Boolean(data.freshness.scheduler_enabled)
+      freshness.last_success_at = data.freshness.last_success_at || null
+      freshness.last_failure_at = data.freshness.last_failure_at || null
+      freshness.last_error = data.freshness.last_error || null
+    }
   } catch (err) {
     error.value = err?.response?.data?.error || err?.message || 'Request failed'
     halts.value = []

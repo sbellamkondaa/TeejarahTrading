@@ -17,9 +17,11 @@
  */
 
 const IntervalScheduler = require('../schedulers/IntervalScheduler');
+const SchedulerStatusService = require('../schedulerStatusService');
 const nasdaqClient = require('./nasdaqClient');
 
 const LOG_PREFIX = '[NASDAQ-HALT-SCHEDULER]';
+const SCHEDULER_NAME = 'nasdaq-halts';
 const MIN_INTERVAL_SECONDS = 60;
 const DEFAULT_INTERVAL_SECONDS = 60;
 
@@ -61,15 +63,29 @@ class NasdaqHaltScheduler extends IntervalScheduler {
   }
 
   async execute() {
-    const result = await nasdaqClient.fetchAndIngestNasdaqHalts();
+    await this.recordStartedSafe();
+    let result;
+    try {
+      result = await nasdaqClient.fetchAndIngestNasdaqHalts();
+    } catch (error) {
+      await this.recordFailureSafe(error);
+      throw error;
+    }
+
     this.lastRunAt = new Date();
     this.lastResult = result;
 
     if (result && result.ok) {
+      await this.recordSuccessSafe({
+        fetched: result.fetched,
+        inserted: result.inserted,
+        skipped: result.skipped
+      });
       console.log(
         `${LOG_PREFIX} Ingest ok: fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped}`
       );
     } else {
+      await this.recordFailureSafe(new Error('Ingest not ok: ' + JSON.stringify(result)));
       console.warn(
         `${LOG_PREFIX} Ingest not ok: ${JSON.stringify(result)}`
       );
@@ -78,11 +94,36 @@ class NasdaqHaltScheduler extends IntervalScheduler {
     return result;
   }
 
+  async recordStartedSafe() {
+    try {
+      await SchedulerStatusService.recordStarted(SCHEDULER_NAME);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Failed to record started status: ${err.message}`);
+    }
+  }
+
+  async recordSuccessSafe(summary) {
+    try {
+      await SchedulerStatusService.recordSuccess(SCHEDULER_NAME, summary);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Failed to record success status: ${err.message}`);
+    }
+  }
+
+  async recordFailureSafe(error) {
+    try {
+      await SchedulerStatusService.recordFailure(SCHEDULER_NAME, error);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Failed to record failure status: ${err.message}`);
+    }
+  }
+
   getStatus() {
     return {
       ...super.getStatus(),
       enabled: isSchedulerEnabled(),
       intervalSeconds: this.intervalSeconds,
+      schedulerName: SCHEDULER_NAME,
       lastRunAt: this.lastRunAt,
       lastResult: this.lastResult
     };
@@ -91,6 +132,7 @@ class NasdaqHaltScheduler extends IntervalScheduler {
 
 module.exports = {
   NasdaqHaltScheduler,
+  SCHEDULER_NAME,
   // Exported separately for tests that need to control env without instantiating
   isSchedulerEnabled,
   getIntervalSeconds,

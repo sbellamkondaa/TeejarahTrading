@@ -9,9 +9,18 @@ jest.mock('../../src/utils/logger', () => ({
   info: jest.fn(),
   logDebug: jest.fn()
 }));
+jest.mock('../../src/services/nasdaq/nasdaqHaltScheduler', () => ({
+  isSchedulerEnabled: jest.fn(() => false),
+  SCHEDULER_NAME: 'nasdaq-halts'
+}));
+jest.mock('../../src/services/schedulerStatusService', () => ({
+  get: jest.fn()
+}));
 
 const db = require('../../src/config/database');
 const finnhub = require('../../src/utils/finnhub');
+const { isSchedulerEnabled } = require('../../src/services/nasdaq/nasdaqHaltScheduler');
+const SchedulerStatusService = require('../../src/services/schedulerStatusService');
 const controller = require('../../src/controllers/market.controller');
 
 function mockRes() {
@@ -28,6 +37,9 @@ describe('market.controller', () => {
     db.query.mockReset();
     finnhub.getQuotes.mockReset();
     finnhub.getCompanyNews.mockReset();
+    isSchedulerEnabled.mockReset();
+    isSchedulerEnabled.mockReturnValue(false);
+    SchedulerStatusService.get.mockReset();
   });
 
   describe('getIndices', () => {
@@ -65,15 +77,15 @@ describe('market.controller', () => {
   });
 
   describe('getHalts', () => {
-    test('returns halts newest first with status derived from is_resumption, plus reason_description and last_updated', async () => {
+    test('returns halts newest first with status derived from is_resumption, plus reason_description and freshness', async () => {
       db.query.mockResolvedValue({
         rows: [
           { symbol: 'AAPL', halt_type: 'LUDP', reason: 'LUDP', exchange: 'NASDAQ',
             halted_at: '2026-09-04T13:30:54Z', resume_at: null, is_resumption: false,
-            issue_name: 'Apple Inc.', created_at: '2026-09-04T13:31:00Z' },
+            issue_name: 'Apple Inc.' },
           { symbol: 'MSFT', halt_type: 'LUDP', reason: 'LUDP', exchange: 'ARCA',
             halted_at: '2026-09-03T14:11:22Z', resume_at: '2026-09-03T14:25:30Z', is_resumption: true,
-            issue_name: null, created_at: '2026-09-03T14:12:00Z' }
+            issue_name: null }
         ]
       });
       const res = mockRes();
@@ -85,7 +97,10 @@ describe('market.controller', () => {
       expect(res.body.halts[0].reason_description).toBe('Limit up / limit down pause');
       expect(res.body.halts[1].status).toBe('resumed');
       expect(res.body.halts[1].resume_at).toBe('2026-09-03T14:25:30Z');
-      expect(res.body.last_updated).toBe('2026-09-04T13:31:00Z');
+      // Freshness object present (scheduler disabled by default in beforeEach).
+      expect(res.body.freshness).toBeDefined();
+      expect(res.body.freshness.scheduler_enabled).toBe(false);
+      expect(res.body.freshness.last_success_at).toBeNull();
     });
 
     test('clamps limit to max 100 and defaults to 10', async () => {
@@ -188,13 +203,74 @@ describe('market.controller', () => {
         rows: [{
           symbol: 'XYZ', halt_type: 'ZZZ', reason: 'ZZZ', exchange: 'NASDAQ',
           halted_at: '2026-09-04T13:30:54Z', resume_at: null, is_resumption: false,
-          issue_name: null, created_at: '2026-09-04T13:31:00Z'
+          issue_name: null
         }]
       });
       const res = mockRes();
       await controller.getHalts({ query: {} }, res);
       expect(res.body.halts[0].halt_type).toBe('ZZZ');
       expect(res.body.halts[0].reason_description).toBeNull();
+    });
+
+    test('freshness: scheduler disabled returns scheduler_enabled=false and null timestamps', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      isSchedulerEnabled.mockReturnValue(false);
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(res.body.freshness.scheduler_enabled).toBe(false);
+      expect(res.body.freshness.last_success_at).toBeNull();
+      // SchedulerStatusService.get should NOT be called when disabled.
+      expect(SchedulerStatusService.get).not.toHaveBeenCalled();
+    });
+
+    test('freshness: scheduler enabled reads scheduler_status last_success_at', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      isSchedulerEnabled.mockReturnValue(true);
+      SchedulerStatusService.get.mockResolvedValue({
+        lastSuccessAt: '2026-09-04T14:00:00Z',
+        lastFailureAt: null,
+        lastError: null
+      });
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(SchedulerStatusService.get).toHaveBeenCalledWith('nasdaq-halts');
+      expect(res.body.freshness.scheduler_enabled).toBe(true);
+      expect(res.body.freshness.last_success_at).toBe('2026-09-04T14:00:00Z');
+      expect(res.body.freshness.last_failure_at).toBeNull();
+    });
+
+    test('freshness: scheduler enabled but no status row returns null timestamps', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      isSchedulerEnabled.mockReturnValue(true);
+      SchedulerStatusService.get.mockResolvedValue(null);
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(res.body.freshness.scheduler_enabled).toBe(true);
+      expect(res.body.freshness.last_success_at).toBeNull();
+    });
+
+    test('freshness: scheduler enabled with failure records last_failure_at and last_error', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      isSchedulerEnabled.mockReturnValue(true);
+      SchedulerStatusService.get.mockResolvedValue({
+        lastSuccessAt: '2026-09-04T13:00:00Z',
+        lastFailureAt: '2026-09-04T14:00:00Z',
+        lastError: 'network timeout'
+      });
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(res.body.freshness.last_failure_at).toBe('2026-09-04T14:00:00Z');
+      expect(res.body.freshness.last_error).toBe('network timeout');
+    });
+
+    test('freshness: scheduler_status read failure does not crash the request', async () => {
+      db.query.mockResolvedValue({ rows: [] });
+      isSchedulerEnabled.mockReturnValue(true);
+      SchedulerStatusService.get.mockRejectedValue(new Error('db down'));
+      const res = mockRes();
+      await controller.getHalts({ query: {} }, res);
+      expect(res.body.freshness.scheduler_enabled).toBe(true);
+      expect(res.body.freshness.last_success_at).toBeNull();
     });
   });
 

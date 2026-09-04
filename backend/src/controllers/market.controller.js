@@ -4,6 +4,8 @@ const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { describeHaltReasonCode } = require('../services/nasdaq/haltReasonCodes');
+const { isSchedulerEnabled, SCHEDULER_NAME } = require('../services/nasdaq/nasdaqHaltScheduler');
+const SchedulerStatusService = require('../services/schedulerStatusService');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -124,8 +126,7 @@ async function getHalts(req, res) {
        halted_at,
        resume_at,
        is_resumption,
-       raw_payload->>'IssueName' AS issue_name,
-       created_at
+       raw_payload->>'IssueName' AS issue_name
      FROM market_halts
      ${whereClause}
      ORDER BY halted_at DESC
@@ -149,14 +150,33 @@ async function getHalts(req, res) {
     };
   });
 
-  // Freshness: most recent row's created_at reflects the last successful ingest
-  // of the filtered set. The market_halts table has no updated_at column; the
-  // upsert ON CONFLICT path does not bump a timestamp, so created_at (set at
-  // insert time) is the best available freshness signal.
-  const latestRow = result.rows[0];
-  const lastUpdated = latestRow ? latestRow.created_at || null : null;
+  // Freshness: prefer the scheduler's last successful poll (from scheduler_status),
+  // which records every healthy run even when no new rows are inserted. When the
+  // scheduler is disabled, return scheduler_enabled=false so the UI can show
+  // "Automatic updates off" instead of a misleading stale label.
+  const freshness = await buildHaltFreshness();
 
-  return res.json({ halts, count: halts.length, last_updated: lastUpdated });
+  return res.json({ halts, count: halts.length, freshness });
+}
+
+async function buildHaltFreshness() {
+  const schedulerEnabled = isSchedulerEnabled();
+
+  let schedulerStatus = null;
+  if (schedulerEnabled) {
+    try {
+      schedulerStatus = await SchedulerStatusService.get(SCHEDULER_NAME);
+    } catch (err) {
+      logger.warn('[MARKET] Failed to read scheduler_status for halts freshness: ' + err.message);
+    }
+  }
+
+  return {
+    scheduler_enabled: schedulerEnabled,
+    last_success_at: schedulerStatus ? schedulerStatus.lastSuccessAt : null,
+    last_failure_at: schedulerStatus ? schedulerStatus.lastFailureAt : null,
+    last_error: schedulerStatus ? schedulerStatus.lastError : null
+  };
 }
 
 // GET /api/market/news?limit=15
