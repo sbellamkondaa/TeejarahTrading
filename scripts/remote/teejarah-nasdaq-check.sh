@@ -109,8 +109,25 @@ HAVING count(*) > 1;
 SQL
     ;;
 
+  ingest)
+    docker exec -i teejarah-worker node <<'NODE'
+const c = require('/app/backend/src/services/nasdaq/nasdaqClient.js');
+
+(async () => {
+  try {
+    const r = await c.fetchAndIngestNasdaqHalts();
+    console.log(JSON.stringify(r, null, 2));
+    if (!r.ok) process.exit(1);
+  } catch (err) {
+    console.error(err && err.stack ? err.stack : err);
+    process.exit(1);
+  }
+})();
+NODE
+    ;;
+
   *)
-    echo "Usage: $0 {status|parse|db}" >&2
+    echo "Usage: $0 {status|parse|db|ingest}" >&2
     exit 2
     ;;
 esac
