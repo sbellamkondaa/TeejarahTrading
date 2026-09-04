@@ -67,7 +67,7 @@ describe('market.controller', () => {
         DIA: { c: 450, d: 3, dp: 0.67, pc: 447, t: TS, source: 'schwab' }
       });
       const res = mockRes();
-      await controller.getIndices({}, res);
+      await controller.getIndices({ query: {} }, res);
       expect(res.body.indices).toHaveLength(4);
       expect(res.body.indices.map(i => i.symbol).sort()).toEqual(['DIA', 'IWM', 'QQQ', 'SPY']);
       const spy = res.body.indices.find(i => i.symbol === 'SPY');
@@ -100,14 +100,14 @@ describe('market.controller', () => {
     test('marks unavailable when provider returns no quote', async () => {
       finnhub.getQuotes.mockResolvedValue({});
       const res = mockRes();
-      await controller.getIndices({}, res);
+      await controller.getIndices({ query: {} }, res);
       expect(res.body.indices.every(i => i.available === false)).toBe(true);
     });
 
     test('survives provider throw (all unavailable)', async () => {
       finnhub.getQuotes.mockRejectedValue(new Error('boom'));
       const res = mockRes();
-      await controller.getIndices({}, res);
+      await controller.getIndices({ query: {} }, res);
       expect(res.body.indices.every(i => i.available === false)).toBe(true);
     });
   });
@@ -655,19 +655,21 @@ describe('market.controller', () => {
         .mockResolvedValue(mockMoversResult([]));
       // First getQuotes call: mover symbols -> returns {}
       finnhub.getQuotes.mockResolvedValueOnce({});
-      // Second getQuotes call: index symbols -> returns index data
+      // Second getQuotes call: extended index symbols -> returns index data
       finnhub.getQuotes.mockResolvedValueOnce({
         SPY: { c: 500, d: 1, dp: 0.2, t: TS },
         QQQ: { c: 400, d: 0, dp: 0, t: TS },
         IWM: { c: 200, d: -1, dp: -0.5, t: TS },
-        DIA: { c: 450, d: 0, dp: 0, t: TS }
+        DIA: { c: 450, d: 0, dp: 0, t: TS },
+        '$VIX': { c: 14, d: -0.5, dp: -3.4, t: TS },
+        '$COMPX': { c: 26000, d: 50, dp: 0.19, t: TS }
       });
       db.query.mockResolvedValue({ rows: [] });
 
       const res = mockRes();
       await controller.getMovers({ query: {} }, res);
 
-      expect(res.body.indices).toHaveLength(4);
+      expect(res.body.indices).toHaveLength(6);
       expect(res.body.indices[0].symbol).toBe('SPY');
       expect(res.body.indices[0].available).toBe(true);
     });
