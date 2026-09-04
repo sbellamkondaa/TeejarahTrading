@@ -487,7 +487,7 @@ function scanCandidates(candidates, options = {}) {
       }
     } else if (avoidChasing) {
       classification = 'AVOID_CHASING';
-    } else if (evaluation.composite_score >= 70 && dilutionLevel !== 'HIGH') {
+    } else if (evaluation.composite_score >= 70 && !dilutionLevel) {
       classification = 'TRADE';
     } else {
       classification = 'WATCH';
