@@ -18,8 +18,10 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getFilings: jest.fn()
 }));
 
-const marketRoutes = require('../../src/routes/market.routes');
+// Require auth first so its mock is materialized before market.routes.js
+// calls router.use(authenticate) at module load.
 const { authenticate } = require('../../src/middleware/auth');
+const marketRoutes = require('../../src/routes/market.routes');
 
 describe('market routes authentication', () => {
   test('router has a router-level authenticate layer as its first middleware', () => {
