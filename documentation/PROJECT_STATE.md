@@ -179,9 +179,24 @@ Scheduler:
 - 13 deterministic setup types (gap+catalyst, momentum, RVOL surge, VWAP, ORB, breakout, RS, earnings, SEC, halt, volume)
 - Penny-stock policy: sub-$5 excluded by default; exception only with strong verified catalyst (earnings/halt) + acceptable liquidity + no dilution risk
 - Dilution-risk detection: S-1, S-3, 424B5 filings flagged; penny stocks with dilution REJECTED; non-penny get WATCH + score penalty
-- Classification: TRADE (score >= 70), WATCH, AVOID
+- Classification: TRADE (score >= 70, no dilution), WATCH (qualifies/dilution), AVOID_CHASING (extended move), AVOID (penny/weak)
 - Technical indicator engine: EMA 9/20/50/200, VWAP, ATR, RVOL, gap, OR, HOD/LOD, volume trend, S/R, relative strength, volatility regime, liquidity
 - Bounded polling: 30s auto-refresh
+
+### Fundamental + Catalyst Engine (Phase 4) — Production
+- Fundamental Engine (`fundamentalEngine.js`): per-symbol profiles from Finnhub
+  basic financials — revenue growth, EPS TTM, margins, cash, D/E, FCF, shares,
+  market cap, cash runway (loss-making), share trend. Per-metric source/period/
+  as_of metadata. 5-min cache, batched concurrency 5.
+- Dilution Risk Engine (`dilutionRiskEngine.js`): S-1/S-3 shelf + 424B4/424B5
+  prospectus detection with 90-day lookback. LOW/MEDIUM/HIGH with evidence
+  (form, date, URL). Ordinary 8-K/10-K never flagged. Batched single query.
+- Catalyst Engine (`catalystEngine.js`): normalizes halts/earnings/SEC filings/
+  Form 4 into typed catalysts. Deterministic strength 0-100 (source quality 20,
+  recency 30, materiality 30, specificity 10, price/volume confirmation 10).
+  No LLM confidence. No causation claims.
+- Scanner candidates enriched with fundamental_summary, dilution_risk,
+  catalyst_strength, catalyst_evidence. Expandable UI details with evidence links.
 
 ### Extended Market Indices — Production
 - SPY, QQQ, IWM, DIA, $VIX (CBOE Volatility Index), $COMPX (Nasdaq Composite)
