@@ -41,7 +41,7 @@ Active development branch:
 
 Current known HEAD when this state file was updated:
 
-- `92cae75f` — Add Catalyst Momentum + VWAP Reclaim strategy engine
+- `1e155a5c` — Add Paper Broker / Execution Simulator with fill simulation, protective exits, idempotent submission, and reconciliation
 
 The Nasdaq migration and client are now committed and pushed to this branch.
 
@@ -370,6 +370,96 @@ all hard-rejection paths, VALID/WATCH/REJECTED states, short direction,
 determinism/reproducibility, approval-gate helpers). Route wiring covered by
 `trading.routes.test.js`.
 
+## Paper Broker / Execution Simulator — Production
+
+Migration: `264_create_paper_trading_tables.sql` (additive — paper_positions +
+paper_orders with full order lifecycle, client_order_id for idempotency).
+
+Engine: `backend/src/services/trading/paperBroker.js`
+
+Execution Adapter Pattern:
+- PaperExecutionAdapter implements simulated fills from Schwab/Finnhub quotes.
+- Future SchwabExecutionAdapter would implement the same interface with real
+  broker API calls. Proposal/risk/state-machine interfaces are reusable.
+
+Fill Simulation (deterministic — no random fills):
+- Marketable limit buy:  fill when ask ≤ limit_price (fill at ask)
+- Non-marketable limit:  stays SUBMITTED until market reaches limit
+- Stop sell:             fill when bid ≤ stop_price (fill at worse of stop/bid)
+- Limit sell (T1/T2):   fill when bid ≥ limit_price (fill at bid)
+- Manual close:          fill at current bid
+- Partial fills:         configurable fill ratio (default 1.0 = full fill)
+- Slippage:              configurable per-share deduction (default $0.00)
+
+Protective Exit Invariant:
+- Exits split: T1 = floor(total/3), T2 = floor(total/3), Stop = runner (1/3)
+- Hard invariant: total active sell quantity ≤ remaining position quantity
+- When stop triggers: cancel pending T1/T2, sell full remaining at stop price
+- No live broker OCO implemented (paper simulation only)
+
+Order Lifecycle:
+- States: PENDING, SUBMITTED, PARTIALLY_FILLED, FILLED, CANCELLED, REJECTED, EXPIRED
+- Idempotent submission via client_order_id (UUID)
+- Persists: client_order_id, proposal_id, signal_id, strategy_id, strategy_version,
+  symbol, side, order_type, execution_mode, quantity, filled_qty, limit_price,
+  stop_price, avg_fill_price, status, submitted_at, filled_at, cancelled_at
+
+Position Lifecycle:
+- Tracks: symbol, direction, total_qty, remaining_qty, avg_entry_price,
+  realized_pnl, unrealized_pnl (computed on demand), status, execution_mode,
+  source proposal/signal/strategy, opened_at, closed_at
+- Short positions unsupported (short selling disabled)
+
+Operations:
+- submitEntry: APPROVED → ENTRY_SUBMITTED → (fill) → ENTRY_FILLED → POSITION_ACTIVE
+- processFills: checks active sell orders against current quotes, fills if conditions met
+- cancelEntry: ENTRY_SUBMITTED → ENTRY_CANCELLED
+- updateStop: cancel old stop, create new (no averaging down — stop must be below entry)
+- manualClose: sell remaining at current bid, cancel all pending orders
+- reconcile: verify position state matches order history from PostgreSQL
+
+Reconciliation:
+- PostgreSQL is source of truth. All order/position state reconstructable.
+- Redis never authoritative for order/position state.
+
+Safety:
+- PAPER execution mode only (LIVE gated behind ENABLE_LIVE_TRADING)
+- Short selling disabled
+- Risk engine authoritative: stale/rejected evaluation blocks entry
+- No position quantity increase above approved risk size
+- No averaging down, no martingale
+- Never places live broker orders (only finnhub.getQuote for fill simulation)
+- processFills rejects if proposal in ERROR/MANUAL_INTERVENTION_REQUIRED state
+
+APIs (auth-gated, PAPER only — never places broker orders):
+- `POST /api/trading/proposals/:id/paper-entry` — submit entry (idempotent)
+- `POST /api/trading/proposals/:id/paper-fills` — process fills for active orders
+- `POST /api/trading/proposals/:id/paper-cancel-entry` — cancel pending entry
+- `PATCH /api/trading/proposals/:id/paper-stop` — update stop price
+- `POST /api/trading/proposals/:id/paper-manual-close` — close position at market
+- `GET /api/trading/proposals/:id/paper-reconcile` — reconcile from PostgreSQL
+- `GET /api/trading/proposals/:id/paper-position` — position + orders + unrealized P&L
+- `GET /api/trading/paper-positions` — list all positions
+- `GET /api/trading/paper-orders` — list all orders
+- `GET /api/trading/paper-account` — account summary (open/closed P&L)
+
+Frontend: `/trading/proposals` — PAPER-labeled execution UI with:
+- Execute Paper Entry button (APPROVED + PAPER mode)
+- Pending entry: Check Fills + Cancel Entry buttons
+- Active position: entry price, qty, remaining, realized + unrealized P&L,
+  paper orders list with status, Check Fills + Manual Close + Update Stop
+- All PAPER state clearly labeled with indigo badge
+
+Tests: `backend/tests/services/paperBroker.test.js` (71 cases: fill simulation
+for all order types, idempotency, entry gating, protective exits with invariant,
+cancel entry, update stop, manual close, reconciliation, account summary,
+no live broker calls). Route wiring: `trading.routes.test.js` (4 cases).
+
+Review: fast-review found 3 issues, all fixed:
+- stop_close order missing filled_qty/avg_fill_price → fixed
+- processFills missing lifecycle state guard → added ERROR/MANUAL_INTERVENTION check
+- unused quoteStaleMs config → removed
+
 ## Compatibility / Safety Invariants
 
 - Preserve TradeTally iOS compatibility.
@@ -446,7 +536,29 @@ Current safety defaults:
    - API: recalc / read / presets
    - UI: risk section with preset selector
 
-4. Paper Broker
+4. Paper Broker / Execution Simulator ← COMPLETED
+   - ExecutionAdapter pattern (PaperExecutionAdapter; SchwabExecutionAdapter future)
+   - Migration 264: paper_positions + paper_orders (additive, non-destructive)
+   - Idempotent entry submission via client_order_id (no duplicate entries)
+   - Fill simulation: marketable/non-marketable limit, stop sell, partial fills,
+     configurable slippage (deterministic — no random fills)
+   - Order lifecycle: PENDING → SUBMITTED → PARTIALLY_FILLED → FILLED /
+     CANCELLED / REJECTED / EXPIRED
+   - Position lifecycle: OPEN → CLOSED with realized + unrealized P&L
+   - Protective exits: T1/T2/stop split (1/3 each); hard invariant
+     (active sell qty ≤ remaining position qty)
+   - When stop triggers: cancel pending T1/T2, sell full remaining at stop
+   - Cancel pending entry, update stop (no averaging down), manual close
+   - Reconciliation from PostgreSQL (source of truth; Redis never authoritative)
+   - Safety: PAPER mode only, short selling disabled, risk engine authoritative,
+     no live broker calls, no position qty increase above approved risk size
+   - APIs (auth-gated): paper-entry, paper-fills, paper-cancel-entry,
+     paper-stop (PATCH), paper-manual-close, paper-reconcile, paper-position,
+     paper-positions, paper-orders, paper-account
+   - UI: PAPER-labeled execution UI (entry, cancel, check fills, stop update,
+     manual close, order list, unrealized P&L)
+   - Tests: 71 tests (fill simulation, idempotency, gating, protective exits,
+     cancel, stop replacement, manual close, reconcile, no live broker calls)
 
 5. Order / Position State Machine
 
