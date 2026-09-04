@@ -1,13 +1,6 @@
-// Verifies that every market endpoint is gated behind the authenticate
-// middleware. Rather than mounting the router in a live Express app (which
-// requires supertest, not in the prod image), we inspect the router's layer
-// stack: the first layer should be router-level `authenticate`, and each route
-// layer should be a GET handler.
-
 // Mock the auth middleware to avoid loading its heavy deps (jsonwebtoken,
-// User model) in the stripped prod image. Return a real function reference so
-// Express's router.use(authenticate) binds it as middleware (router.use throws
-// "pathRegexp.match is not a function" if given a non-function).
+// User model) in the stripped prod image. Return a real named function so
+// Express's router.use(authenticate) binds it as middleware.
 jest.mock('../../src/middleware/auth', () => {
   const authenticate = function authenticate(req, res, next) {
     const err = new Error('Please authenticate');
@@ -25,20 +18,8 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getFilings: jest.fn()
 }));
 
+const marketRoutes = require('../../src/routes/market.routes');
 const { authenticate } = require('../../src/middleware/auth');
-
-test('DEBUG: check authenticate type before requiring routes', () => {
-  console.log('typeof authenticate:', typeof authenticate);
-  console.log('authenticate.toString():', String(authenticate).slice(0, 100));
-  // Now require routes — this calls router.use(authenticate) internally.
-  let routes;
-  try {
-    routes = require('../../src/routes/market.routes');
-  } catch (e) {
-    console.log('require routes threw:', e.message);
-  }
-  expect(true).toBe(true);
-});
 
 describe('market routes authentication', () => {
   test('router has a router-level authenticate layer as its first middleware', () => {
@@ -77,4 +58,3 @@ describe('market routes authentication', () => {
     expect(err.status).toBe(401);
   });
 });
-
