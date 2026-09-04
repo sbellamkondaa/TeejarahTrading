@@ -91,6 +91,7 @@ const crmSyncScheduler = require('./services/crmSyncScheduler');
 const edgeReportScheduler = require('./services/edgeReportScheduler');
 const activityTrackingService = require('./services/activityTrackingService');
 const engagementScheduler = require('./services/engagementScheduler');
+const secIngestionScheduler = require('./services/sec/secIngestionScheduler');
 const activityTrackingMiddleware = require('./middleware/activityTracking');
 const emailTrackingRoutes = require('./routes/emailTracking.routes');
 const backgroundWorker = require('./workers/backgroundWorker');
@@ -788,6 +789,12 @@ function scheduleBackgroundServices(backgroundJobsDisabled) {
       console.log('Starting engagement scheduler...');
       engagementScheduler.start();
       console.log('[SUCCESS] Engagement scheduler started');
+    });
+
+    defer('sec-ingestion-scheduler', async () => {
+      console.log('Starting SEC ingestion scheduler...');
+      await secIngestionScheduler.start();
+      console.log('[SUCCESS] SEC ingestion scheduler started');
     });
   } else {
     console.log('Engagement tracking disabled (ENABLE_ENGAGEMENT_TRACKING=false)');
