@@ -96,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_trade_proposals_state
 CREATE TABLE IF NOT EXISTS trade_approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   proposal_id UUID NOT NULL REFERENCES trade_proposals(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   decision VARCHAR(20) NOT NULL,
   note TEXT,
   decided_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
