@@ -176,16 +176,55 @@ Scheduler:
 
 ## Planned Order After Nasdaq Validation
 
-1. FINRA short-volume
-2. FRED/BLS macro
-3. Technical indicator engine
-4. Scanner
-5. Risk score
-6. Position sizing
-7. OpenRouter advisory
-8. Paper-trade validation
-9. Failure/load/backup tests
-10. Kubernetes migration manifests
+1. Technical indicator engine ← IN PROGRESS
+2. Deterministic scanner
+3. Fundamental / catalyst engine
+4. Event / relationship graph
+5. Additional official/free data (FRED/BLS, FINRA, FDA, ClinicalTrials.gov, 13F)
+6. Empirical outcome / learning engine
+7. AI model bake-off (OpenRouter multi-model)
+8. AI trade advisor
+9. Real-time plan re-evaluation
+10. Daily trade candidates
+11. Research trackers (Form 4, 13F, congressional)
+12. Education (contextual Learn links)
+13. Risk / position sizing
+14. Automated QA / Playwright browser smoke tests
+
+## Capability Audit (Phase 1)
+
+### Exists — Production
+- Schwab quotes/batch-quotes/candles/price-history/movers (`schwabMarketData.js`)
+- Finnhub quotes/news/earnings/profile/candles/technical-indicators/patterns/support-resistance/basic-financials/financial-statements (`finnhubClient.js`)
+- Finnhub recommendation trends — AVAILABLE (403 on upgrade-downgrade and price-target)
+- SEC filings + company facts ingestion from EDGAR (`sec/`)
+- Nasdaq halts RSS + scheduler + freshness
+- Redis cache (`redisCache.js`), scheduler infrastructure (`IntervalScheduler`, `schedulerStatusService`)
+- AI multi-provider (`aiProvider.js`: OpenAI, DeepSeek, Gemini, Claude, Kimi, Perplexity, Ollama, LMStudio, custom)
+- AI session service for trade analysis chat (`aiSessionService.js`)
+- 8-pillars stock scanner (`stockScannerService.js`, `eightPillarsService.js`) — Russell 2000 fundamentals scan
+- Fundamental data service (`fundamentalDataService.js`) — financials, metrics, analyst estimates
+- DCF valuation (`dcfValuationService.js`)
+- Historical price cache (`historicalPriceCache.js`)
+- Backtest sessions (`backtestService.js`)
+- Chart service for trade data (`chartService.js`)
+- Market Overview, Premarket & Movers, Trading Halts — all live
+
+### Missing
+- Server-side technical indicator calculations (EMA, VWAP, ATR, RVOL, opening range, HOD/LOD, etc.)
+- Deterministic technical setup scanner (gap+catalyst, ORB, VWAP reclaim, momentum, etc.)
+- S-3/shelf/ATM/424B5/Form 4 detection and dilution-risk analysis
+- Event/relationship graph (sector, competitors, suppliers, ETF, correlation)
+- Additional data: FDA, ClinicalTrials.gov, FRED/BLS, FINRA, USAspending, Congressional disclosures, 13F tracking
+- Empirical outcome tracking (candidate snapshots, outcome measurement, setup statistics)
+- OpenRouter multi-model benchmarking framework
+- AI trade advisor (structured trade plans with entry/stop/targets)
+- Real-time plan re-evaluation (deterministic triggers, plan versioning)
+- Daily trade candidates page
+- Research trackers (insider Form 4, 13F, congressional, analyst changes)
+- Contextual education content
+- Position sizing calculator
+- Playwright/browser E2E smoke tests
 
 ## Compatibility / Safety Invariants
 
