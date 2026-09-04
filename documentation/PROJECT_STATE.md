@@ -166,13 +166,36 @@ Scheduler:
 - Freshness via `scheduler_status` (not row created_at)
 - "Automatic updates off" when scheduler disabled
 
-### Premarket & Movers (`/market/premarket`) — In Progress
+### Premarket & Movers (`/market/premarket`) — Production
 - Schwab `/marketdata/v1/movers/{index}` for $DJI, $COMPX, $SPX
 - Categories: Gainers, Losers, Most Active (derived from netChange)
 - Gap % calculated from batch-quoted previous close
 - Catalyst badges: halts, earnings, SEC filings (existing DB data)
 - Premarket volume and RVOL: not available from current Schwab endpoint
 - 60-second Redis cache for Schwab movers data
+- Bounded polling: 30s auto-refresh, stops on tab hidden
+
+### Scanner (`/market/scanner`) — Production
+- 13 deterministic setup types (gap+catalyst, momentum, RVOL surge, VWAP, ORB, breakout, RS, earnings, SEC, halt, volume)
+- Penny-stock policy: sub-$5 excluded by default; exception only with strong verified catalyst (earnings/halt) + acceptable liquidity + no dilution risk
+- Dilution-risk detection: S-1, S-3, 424B5 filings flagged; penny stocks with dilution REJECTED; non-penny get WATCH + score penalty
+- Classification: TRADE (score >= 70), WATCH, AVOID
+- Technical indicator engine: EMA 9/20/50/200, VWAP, ATR, RVOL, gap, OR, HOD/LOD, volume trend, S/R, relative strength, volatility regime, liquidity
+- Bounded polling: 30s auto-refresh
+
+### Extended Market Indices — Production
+- SPY, QQQ, IWM, DIA, $VIX (CBOE Volatility Index), $COMPX (Nasdaq Composite)
+- Schwab-verified symbols: $VIX=14.19, $COMPX=26584 (live)
+- /api/market/indices?extended=true returns all 6
+- Movers and Scanner index strips show all 6
+
+### Realtime Architecture
+- No Schwab streaming/WebSocket available in codebase
+- SSE infrastructure exists for notifications (Redis pub/sub + text/event-stream)
+- Bounded polling fallback: 30s for market data, 60s for halts
+- Redis quote cache: 30s TTL (Schwab quotes), 60s TTL (Schwab movers)
+- Polling stops on tab hidden, resumes on visible
+- No per-browser provider connections; no per-symbol API calls
 
 ## Planned Order After Nasdaq Validation
 
