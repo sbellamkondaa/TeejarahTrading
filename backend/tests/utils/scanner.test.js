@@ -452,7 +452,7 @@ describe('scanner', () => {
       expect(results[0].avoid_reason).toContain('liquidity');
     });
 
-    test('non-penny stock with dilution risk gets WATCH classification and score penalty', () => {
+    test('non-penny stock with S-3 dilution gets WATCH classification with dilution fields', () => {
       const stock = makeCandidate({
         symbol: 'DILUT2',
         last_price: 50,
@@ -467,8 +467,86 @@ describe('scanner', () => {
       const results = scanCandidates([stock]);
       expect(results).toHaveLength(1);
       expect(results[0].classification).toBe('WATCH');
-      expect(results[0].dilution_risk).toBe(true);
-      expect(results[0].dilution_filings).toContain('S-3');
+      expect(results[0].dilution_risk_level).toBe('MEDIUM');
+      expect(results[0].dilution_reasons.length).toBeGreaterThan(0);
+    });
+
+    test('HIGH dilution risk from engine blocks TRADE even with strong catalyst', () => {
+      const stock = makeCandidate({
+        symbol: 'BIDIL',
+        last_price: 100,
+        catalysts: [{ type: 'earnings', label: 'Earnings' }],
+        dilution_risk: { level: 'HIGH', reasons: ['424B5 filed 20d ago'], evidence: [] }
+      });
+      stock.indicators.last_price = 100;
+      stock.indicators.gap_pct = 10;
+      stock.indicators.rvol = 5;
+      stock.indicators.change_percent = 12;
+      const results = scanCandidates([stock]);
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('WATCH'); // NOT TRADE
+      expect(results[0].dilution_risk_level).toBe('HIGH');
+    });
+
+    test('penny stock with engine HIGH dilution risk is AVOID even with earnings', () => {
+      const penny = makeCandidate({
+        symbol: 'PDIL',
+        last_price: 3,
+        catalysts: [{ type: 'earnings', label: 'Earnings' }],
+        dilution_risk: { level: 'HIGH', reasons: ['recent offering'], evidence: [] }
+      });
+      penny.indicators.last_price = 3;
+      penny.indicators.gap_pct = 8;
+      penny.indicators.rvol = 4;
+      const results = scanCandidates([penny], { excludePennyStocks: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID');
+      expect(results[0].avoid_reason).toContain('HIGH dilution');
+    });
+
+    test('AVOID_CHASING for extended move without fresh entry', () => {
+      const extended = makeCandidate({
+        symbol: 'CHASE',
+        last_price: 50,
+        catalysts: [{ type: 'earnings', label: 'Earnings' }]
+      });
+      extended.indicators.last_price = 50;
+      extended.indicators.gap_pct = 5;
+      extended.indicators.rvol = 4;
+      extended.indicators.change_percent = 20; // huge move
+      const results = scanCandidates([extended]);
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID_CHASING');
+      expect(results[0].avoid_chasing_reason).toContain('chase risk');
+    });
+
+    test('AVOID_CHASING for price extended far from VWAP', () => {
+      const extended = makeCandidate({ symbol: 'VWAPFAR' });
+      extended.indicators.vwap_distance = 7; // 7% above VWAP
+      extended.indicators.gap_pct = 3;
+      const results = scanCandidates([extended]);
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID_CHASING');
+      expect(results[0].avoid_chasing_reason).toContain('VWAP');
+    });
+
+    test('sort order: TRADE, WATCH, AVOID_CHASING, AVOID', () => {
+      const trade = makeCandidate({ symbol: 'TR', catalysts: [{ type: 'earnings' }] });
+      trade.indicators.gap_pct = 15; trade.indicators.rvol = 8; trade.indicators.change_percent = 12;
+
+      const watch = makeCandidate({ symbol: 'WA' });
+      watch.indicators.change_percent = 4; watch.indicators.gap_pct = 0; watch.indicators.rvol = 0.5;
+      watch.indicators.opening_range = null; watch.indicators.support_resistance = null;
+      watch.indicators.relative_strength = null; watch.indicators.vwap_distance = 0;
+
+      const avoidChase = makeCandidate({ symbol: 'AC' });
+      avoidChase.indicators.change_percent = 20;
+
+      const avoid = makeCandidate({ symbol: 'AV' });
+      avoid.indicators.last_price = 2; avoid.indicators.change_percent = 5; avoid.indicators.gap_pct = 3;
+
+      const results = scanCandidates([avoid, avoidChase, watch, trade]);
+      expect(results.map(r => r.classification)).toEqual(['TRADE', 'WATCH', 'AVOID_CHASING', 'AVOID']);
     });
 
     test('TRADE classification for high-scoring candidates', () => {

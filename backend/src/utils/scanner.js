@@ -351,8 +351,8 @@ function checkDilutionRisk(candidate) {
  * Requirements:
  * - Strong, verified catalyst (earnings, halt, or halt_resumed — NOT social/news alone)
  * - Acceptable liquidity (not very_low)
- * - No active dilution risk (S-3/shelf/424B5/recent offering)
- * - If dilution risk exists, candidate is REJECTED regardless of catalyst
+ * - No high dilution risk (engine level HIGH or S-3/shelf/424B5 filings)
+ * - If dilution risk is HIGH, candidate is REJECTED regardless of catalyst
  *
  * @param {object} candidate
  * @returns {{ allowed: boolean, reason: string }}
@@ -373,7 +373,11 @@ function checkPennyStockException(candidate) {
     return { allowed: false, reason: 'Penny stock with very low liquidity' };
   }
 
-  // 3. Check dilution risk — REJECT if present
+  // 3. Check dilution risk — engine level HIGH or filing-based detection
+  const engineLevel = candidate.dilution_risk?.level;
+  if (engineLevel === 'HIGH') {
+    return { allowed: false, reason: `Penny stock with HIGH dilution risk: ${(candidate.dilution_risk.reasons || []).join(', ')}` };
+  }
   const dilution = checkDilutionRisk(candidate);
   if (dilution && dilution.has_dilution_risk) {
     return { allowed: false, reason: `Penny stock with dilution risk: ${dilution.filings.join(', ')}` };
@@ -429,51 +433,63 @@ function scanCandidates(candidates, options = {}) {
       }
     }
 
-    // Check dilution risk for ALL stocks (not just penny stocks)
-    const dilution = checkDilutionRisk(candidate);
-    if (dilution && dilution.has_dilution_risk) {
-      // Penalize dilution risk — reduce score but don't auto-reject for non-penny
-      const evaluation = evaluateCandidate(candidate);
-      if (evaluation.qualifies && evaluation.composite_score >= minScore) {
-        evaluation.composite_score = Math.max(0, evaluation.composite_score - 20);
-        evaluation.setups.forEach(s => { s.score = Math.max(0, s.score - 20); });
+    // Dilution risk: use the engine's level when provided (candidate.dilution_risk),
+    // else fall back to filing-based detection from catalysts.
+    let dilutionLevel = candidate.dilution_risk?.level || null;
+    let dilutionFilings = candidate.dilution_risk?.reasons || [];
+    if (!dilutionLevel) {
+      const dilution = checkDilutionRisk(candidate);
+      if (dilution && dilution.has_dilution_risk) {
+        dilutionLevel = 'MEDIUM';
+        dilutionFilings = dilution.filings;
       }
-      if (evaluation.best_setup) {
-        evaluation.best_setup.reason += `; Dilution risk: ${dilution.filings.join(', ')}`;
-      }
-
-      results.push({
-        symbol: candidate.symbol,
-        company_name: candidate.company_name ?? candidate.indicators?.company_name,
-        last_price: price,
-        change_percent: candidate.indicators?.change_percent ?? candidate.change_percent,
-        gap_pct: candidate.indicators?.gap_pct,
-        rvol: candidate.indicators?.rvol,
-        vwap: candidate.indicators?.vwap,
-        trend_regime: candidate.indicators?.trend_regime,
-        halted: candidate.halted,
-        catalysts: candidate.catalysts || [],
-        setups: evaluation.setups,
-        best_setup: evaluation.best_setup,
-        composite_score: evaluation.composite_score,
-        dilution_risk: true,
-        dilution_filings: dilution.filings,
-        classification: 'WATCH',
-        liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
-        session: candidate.session
-      });
-      continue;
     }
 
     const evaluation = evaluateCandidate(candidate);
     if (!evaluation.qualifies) continue;
     if (evaluation.composite_score < minScore) continue;
 
+    // Dilution penalty
+    if (dilutionLevel === 'MEDIUM') {
+      evaluation.composite_score = Math.max(0, evaluation.composite_score - 15);
+      evaluation.setups.forEach(s => { s.score = Math.max(0, s.score - 15); });
+    }
+
+    // AVOID_CHASING: extended intraday move without a fresh entry
+    // (gap already filled / moved too far from VWAP / change > 15% after open)
+    const changePct = candidate.indicators?.change_percent ?? candidate.change_percent;
+    const vwapDistance = candidate.indicators?.vwap_distance;
+    let avoidChasing = false;
+    let avoidChasingReason = null;
+    if (changePct != null && Math.abs(changePct) > 15) {
+      avoidChasing = true;
+      avoidChasingReason = `Move extended ${changePct > 0 ? '+' : ''}${changePct.toFixed(1)}% — chase risk`;
+    } else if (vwapDistance != null && Math.abs(vwapDistance) > 5) {
+      avoidChasing = true;
+      avoidChasingReason = `Price ${vwapDistance > 0 ? 'above' : 'below'} VWAP by ${Math.abs(vwapDistance).toFixed(1)}% — extended`;
+    }
+
+    // Classification
+    let classification;
+    if (dilutionLevel === 'HIGH') {
+      // High dilution risk blocks TRADE even with a strong catalyst
+      classification = 'WATCH';
+      if (evaluation.best_setup) {
+        evaluation.best_setup.reason += `; Dilution risk HIGH: ${(dilutionFilings || []).join(', ')}`;
+      }
+    } else if (avoidChasing) {
+      classification = 'AVOID_CHASING';
+    } else if (evaluation.composite_score >= 70 && dilutionLevel !== 'HIGH') {
+      classification = 'TRADE';
+    } else {
+      classification = 'WATCH';
+    }
+
     results.push({
       symbol: candidate.symbol,
       company_name: candidate.company_name ?? candidate.indicators?.company_name,
       last_price: price,
-      change_percent: candidate.indicators?.change_percent ?? candidate.change_percent,
+      change_percent: changePct,
       gap_pct: candidate.indicators?.gap_pct,
       rvol: candidate.indicators?.rvol,
       vwap: candidate.indicators?.vwap,
@@ -483,17 +499,20 @@ function scanCandidates(candidates, options = {}) {
       setups: evaluation.setups,
       best_setup: evaluation.best_setup,
       composite_score: evaluation.composite_score,
-      classification: evaluation.composite_score >= 70 ? 'TRADE' : 'WATCH',
+      dilution_risk_level: dilutionLevel || 'LOW',
+      dilution_reasons: dilutionFilings,
+      classification,
+      avoid_chasing_reason: avoidChasingReason,
       liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
       session: candidate.session
     });
   }
 
-  // Sort: TRADE candidates first (by score), then WATCH, then AVOID
-  const classificationOrder = { TRADE: 0, WATCH: 1, AVOID: 2 };
+  // Sort: TRADE candidates first (by score), then WATCH, then AVOID_CHASING, then AVOID
+  const classificationOrder = { TRADE: 0, WATCH: 1, AVOID_CHASING: 2, AVOID: 3 };
   results.sort((a, b) => {
-    const aOrder = classificationOrder[a.classification] ?? 3;
-    const bOrder = classificationOrder[b.classification] ?? 3;
+    const aOrder = classificationOrder[a.classification] ?? 4;
+    const bOrder = classificationOrder[b.classification] ?? 4;
     if (aOrder !== bOrder) return aOrder - bOrder;
     return (b.composite_score || 0) - (a.composite_score || 0);
   });

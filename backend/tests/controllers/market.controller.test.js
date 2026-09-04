@@ -26,6 +26,16 @@ jest.mock('../../src/utils/marketSession', () => ({
     as_of: Date.now()
   }))
 }));
+jest.mock('../../src/services/fundamentalEngine', () => ({
+  buildFundamentalProfiles: jest.fn().mockResolvedValue({})
+}));
+jest.mock('../../src/services/dilutionRiskEngine', () => ({
+  assessDilutionRisk: jest.fn().mockResolvedValue({})
+}));
+jest.mock('../../src/services/catalystEngine', () => ({
+  getCatalystsForSymbols: jest.fn().mockResolvedValue({}),
+  getStrongestCatalyst: jest.fn(() => null)
+}));
 
 const db = require('../../src/config/database');
 const finnhub = require('../../src/utils/finnhub');

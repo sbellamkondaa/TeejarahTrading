@@ -8,6 +8,9 @@ const SchedulerStatusService = require('../services/schedulerStatusService');
 const schwabMarketData = require('../utils/schwabMarketData');
 const { getMarketSession } = require('../utils/marketSession');
 const { scanCandidates } = require('../utils/scanner');
+const { buildFundamentalProfiles } = require('../services/fundamentalEngine');
+const { assessDilutionRisk } = require('../services/dilutionRiskEngine');
+const { getCatalystsForSymbols, getStrongestCatalyst } = require('../services/catalystEngine');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -603,6 +606,30 @@ async function getMovers(req, res) {
   });
 }
 
+// Compact fundamental summary for scanner rows — avoids shipping the full
+// per-metric metadata to the frontend.
+function compactFundamental(profile) {
+  if (!profile) return null;
+  const g = (k) => (profile[k] && profile[k].value != null ? profile[k].value : null);
+  return {
+    symbol: profile.symbol,
+    revenue_growth: g('revenue_growth'),
+    eps_ttm: g('eps_ttm'),
+    gross_margin: g('gross_margin'),
+    operating_margin: g('operating_margin'),
+    net_margin: g('net_margin'),
+    cash_per_share: g('cash_per_share'),
+    debt_to_equity: g('debt_to_equity'),
+    fcf_per_share: g('fcf_per_share'),
+    market_cap: g('market_cap'),
+    shares_outstanding: g('shares_outstanding'),
+    is_loss_making: profile.is_loss_making ?? null,
+    cash_runway_months: g('cash_runway_months'),
+    share_trend: profile.share_trend || null,
+    unavailable: (profile._meta && profile._meta.unavailable) || []
+  };
+}
+
 // GET /api/market/scanner?category=gainers&limit=25&min_score=40
 async function getScanner(req, res) {
   const limit = parseLimit(req.query.limit);
@@ -716,12 +743,27 @@ async function getScanner(req, res) {
       logger.warn('[MARKET] Scanner halt enrichment failed: ' + err.message);
     }
 
-    // Catalyst enrichment
-    const catalystMap = await enrichWithCatalysts(candidates.map((c) => c.symbol));
+    // Catalyst enrichment via the catalyst engine (typed events + strength)
+    const priceContext = {};
+    candidates.forEach((c) => {
+      priceContext[c.symbol] = { change_percent: c.change_percent, rvol: c.rvol };
+    });
+    const catalystMap = await getCatalystsForSymbols(candidates.map((c) => c.symbol), priceContext);
     candidates.forEach((c) => {
       c.catalysts = catalystMap[c.symbol] || [];
     });
   }
+
+  // Fundamental profiles + dilution risk for scanner candidates (top N by rough volume)
+  const fundamentalSymbols = candidates.slice(0, 20).map((c) => c.symbol);
+  const [fundamentalMap, dilutionMap] = await Promise.all([
+    buildFundamentalProfiles(fundamentalSymbols).catch(() => ({})),
+    assessDilutionRisk(fundamentalSymbols).catch(() => ({}))
+  ]);
+  candidates.forEach((c) => {
+    c.fundamental_summary = fundamentalMap[c.symbol] || null;
+    c.dilution_risk = dilutionMap[c.symbol] || null;
+  });
 
   // Run deterministic scanner
   const results = scanCandidates(candidates, {
@@ -729,6 +771,26 @@ async function getScanner(req, res) {
     maxResults: limit,
     excludePennyStocks
   });
+
+  // Post-scan enrichment: attach compact summaries + strongest catalyst + classification reasons
+  for (const r of results) {
+    const src = candidates.find((c) => c.symbol === r.symbol);
+    if (!src) continue;
+    r.fundamental_summary = compactFundamental(src.fundamental_summary);
+    r.dilution_risk = src.dilution_risk
+      ? { level: src.dilution_risk.level, reasons: src.dilution_risk.reasons, evidence: src.dilution_risk.evidence }
+      : { level: 'LOW', reasons: ['No data'], evidence: [] };
+    const strongest = getStrongestCatalyst(src.catalysts || []);
+    r.catalyst_strength = strongest ? strongest.strength : null;
+    r.catalyst_evidence = (src.catalysts || []).slice(0, 5).map((cat) => ({
+      event_type: cat.event_type,
+      label: cat.label,
+      event_time: cat.event_time,
+      source: cat.source,
+      source_url: cat.source_url,
+      strength: cat.strength
+    }));
+  }
 
   // Fetch extended index quotes for market context
   let indices = null;
