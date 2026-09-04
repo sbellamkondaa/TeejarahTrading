@@ -304,6 +304,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/market/scanner',
+      name: 'market-scanner',
+      component: () => import('@/views/ScannerView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/u/:username',
       name: 'user-profile',
       component: () => import('@/views/UserProfileView.vue')

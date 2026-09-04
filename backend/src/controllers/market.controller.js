@@ -7,6 +7,7 @@ const { isSchedulerEnabled, SCHEDULER_NAME } = require('../services/nasdaq/nasda
 const SchedulerStatusService = require('../services/schedulerStatusService');
 const schwabMarketData = require('../utils/schwabMarketData');
 const { getMarketSession } = require('../utils/marketSession');
+const { scanCandidates } = require('../utils/scanner');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -594,11 +595,153 @@ async function getMovers(req, res) {
   });
 }
 
+// GET /api/market/scanner?category=gainers&limit=25&min_score=40
+async function getScanner(req, res) {
+  const limit = parseLimit(req.query.limit);
+  const minScoreRaw = parseInt(req.query.min_score, 10);
+  const minScore = Number.isFinite(minScoreRaw) && minScoreRaw > 0
+    ? Math.min(minScoreRaw, 100)
+    : 40;
+
+  const excludePennyStocks = String(req.query.exclude_penny ?? 'true').toLowerCase() !== 'false';
+
+  // Fetch movers (reuse the same Schwab movers + enrichment pipeline)
+  const allItems = [];
+  const fetchedAts = [];
+  let source = 'schwab';
+
+  for (const indexSymbol of MOVER_INDEXES) {
+    const result = await schwabMarketData.getMovers(indexSymbol);
+    if (result && result.items) {
+      allItems.push(...result.items);
+      fetchedAts.push(result.fetched_at);
+      if (result.source === 'schwab-cached') source = 'schwab-cached';
+    }
+  }
+
+  if (allItems.length === 0) {
+    const session = getMarketSession();
+    return res.json({
+      session: session.session,
+      session_label: session.label,
+      as_of: Date.now(),
+      source,
+      candidates: [],
+      count: 0,
+      error: 'Movers data unavailable (Schwab connection may be inactive)'
+    });
+  }
+
+  // Deduplicate
+  const seen = new Set();
+  const deduped = [];
+  for (const item of allItems) {
+    const sym = item.symbol?.toUpperCase();
+    if (sym && !seen.has(sym)) {
+      seen.add(sym);
+      deduped.push(item);
+    }
+  }
+
+  // Batch quote for previous close
+  const symbolsToQuote = deduped.map((i) => i.symbol);
+  let quotes = {};
+  try {
+    quotes = await finnhub.getQuotes(symbolsToQuote);
+  } catch (err) {
+    logger.warn('[MARKET] Scanner batch quote failed: ' + err.message);
+  }
+
+  // Build candidates with indicators (simplified — uses quote data, not full candles)
+  const candidates = deduped.map((item) => {
+    const sym = item.symbol;
+    const q = quotes[sym] || {};
+    const previousClose = q.pc != null ? Number(q.pc) : null;
+    const lastPrice = item.last_price;
+    const gapPct = calculateGapPct(lastPrice, previousClose);
+
+    return {
+      symbol: sym,
+      company_name: item.description,
+      last_price: lastPrice,
+      change_percent: item.net_percent_change,
+      gap_pct: gapPct,
+      rvol: null, // requires intraday candle data not available here
+      volume: item.volume,
+      halted: false,
+      catalysts: [],
+      session: getMarketSession().session,
+      indicators: {
+        last_price: lastPrice,
+        previous_close: previousClose,
+        gap_pct: gapPct,
+        change_percent: item.net_percent_change,
+        rvol: null,
+        vwap: null,
+        vwap_distance: null,
+        trend_regime: 'insufficient_data',
+        opening_range: null,
+        support_resistance: null,
+        relative_strength: null,
+        volume: item.volume,
+        liquidity: {
+          liquidity_rating: item.total_volume > 10_000_000 ? 'high' : item.total_volume > 1_000_000 ? 'moderate' : 'low',
+          spread_rating: 'unknown'
+        },
+        volatility_regime: 'insufficient_data',
+        atr_14: null
+      }
+    };
+  });
+
+  // Enrich with halts
+  if (seen.size > 0) {
+    try {
+      const haltResult = await db.query(
+        `SELECT DISTINCT symbol FROM market_halts
+         WHERE symbol = ANY($1::text[]) AND is_resumption = false`,
+        [Array.from(seen)]
+      );
+      const haltedSymbols = new Set(haltResult.rows.map((r) => r.symbol));
+      candidates.forEach((c) => { c.halted = haltedSymbols.has(c.symbol); });
+    } catch (err) {
+      logger.warn('[MARKET] Scanner halt enrichment failed: ' + err.message);
+    }
+
+    // Catalyst enrichment
+    const catalystMap = await enrichWithCatalysts(candidates.map((c) => c.symbol));
+    candidates.forEach((c) => {
+      c.catalysts = catalystMap[c.symbol] || [];
+    });
+  }
+
+  // Run deterministic scanner
+  const results = scanCandidates(candidates, {
+    minScore,
+    maxResults: limit,
+    excludePennyStocks
+  });
+
+  const session = getMarketSession();
+  const asOf = fetchedAts.length ? Math.min(...fetchedAts) : Date.now();
+
+  return res.json({
+    session: session.session,
+    session_label: session.label,
+    as_of: asOf,
+    source,
+    candidates: results,
+    count: results.length,
+    min_score: minScore
+  });
+}
+
 module.exports = {
   getIndices: asyncHandler(getIndices),
   getHalts: asyncHandler(getHalts),
   getNews: asyncHandler(getNews),
   getEarnings: asyncHandler(getEarnings),
   getFilings: asyncHandler(getFilings),
-  getMovers: asyncHandler(getMovers)
+  getMovers: asyncHandler(getMovers),
+  getScanner: asyncHandler(getScanner)
 };

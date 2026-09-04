@@ -506,6 +506,7 @@ const navItems = computed(() => {
       items: [
         { name: 'Overview', to: '/market', route: 'market-overview' },
         { name: 'Premarket & Movers', to: '/market/premarket', route: 'market-premarket' },
+        { name: 'Scanner', to: '/market/scanner', route: 'market-scanner' },
         { name: 'Trading Halts', to: '/market/halts', route: 'market-halts' }
       ]
     },
