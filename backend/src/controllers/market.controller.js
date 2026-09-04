@@ -2,7 +2,6 @@ const db = require('../config/database');
 const finnhub = require('../utils/finnhub');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
-const AppError = require('../utils/AppError');
 const { describeHaltReasonCode } = require('../services/nasdaq/haltReasonCodes');
 const { isSchedulerEnabled, SCHEDULER_NAME } = require('../services/nasdaq/nasdaqHaltScheduler');
 const SchedulerStatusService = require('../services/schedulerStatusService');
