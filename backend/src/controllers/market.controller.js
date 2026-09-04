@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const finnhub = require('../utils/finnhub');
+const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -39,7 +40,7 @@ async function getIndices(req, res) {
   try {
     quotes = await finnhub.getQuotes(INDEX_SYMBOLS);
   } catch (error) {
-    console.error('[MARKET] indices quote error:', error.message);
+    logger.error('[MARKET] indices quote error: ' + error.message);
     quotes = {};
   }
 
@@ -118,13 +119,13 @@ async function getNews(req, res) {
           summary: item.summary || null,
           source: item.source || null,
           url: item.url || null,
-          related: item.related || symbol,
+          related: item.related || null,
           image: item.image || null,
           datetime: item.datetime || null
         });
       }
     } catch (error) {
-      console.warn(`[MARKET] news fetch failed for ${symbol}: ${error.message}`);
+      logger.warn('[MARKET] news fetch failed for ' + symbol + ': ' + error.message);
     }
   }
 
