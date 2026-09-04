@@ -1,4 +1,4 @@
-const { scoreSetup, evaluateCandidate, scanCandidates, SETUP_TYPES, MIN_CANDIDATE_SCORE } = require('../../src/utils/scanner');
+const { scoreSetup, evaluateCandidate, scanCandidates, SETUP_TYPES, MIN_CANDIDATE_SCORE, checkDilutionRisk, checkPennyStockException, DILUTION_FORM_TYPES } = require('../../src/utils/scanner');
 
 function makeCandidate(overrides = {}) {
   return {
@@ -238,6 +238,110 @@ describe('scanner', () => {
     });
   });
 
+  describe('checkDilutionRisk', () => {
+    test('detects S-3 filing as dilution risk', () => {
+      const candidate = makeCandidate({
+        catalysts: [{ type: 'sec_filing', label: 'S-3' }]
+      });
+      const result = checkDilutionRisk(candidate);
+      expect(result).not.toBeNull();
+      expect(result.has_dilution_risk).toBe(true);
+      expect(result.filings).toContain('S-3');
+    });
+
+    test('detects 424B5 as dilution risk', () => {
+      const candidate = makeCandidate({
+        catalysts: [{ type: 'sec_filing', label: '424B5' }]
+      });
+      const result = checkDilutionRisk(candidate);
+      expect(result).not.toBeNull();
+      expect(result.filings).toContain('424B5');
+    });
+
+    test('does not flag 8-K as dilution risk', () => {
+      const candidate = makeCandidate({
+        catalysts: [{ type: 'sec_filing', label: '8-K' }]
+      });
+      const result = checkDilutionRisk(candidate);
+      expect(result).toBeNull();
+    });
+
+    test('returns null when no SEC filings', () => {
+      const candidate = makeCandidate({ catalysts: [] });
+      expect(checkDilutionRisk(candidate)).toBeNull();
+    });
+
+    test('DILUTION_FORM_TYPES contains expected set', () => {
+      expect(DILUTION_FORM_TYPES.has('S-3')).toBe(true);
+      expect(DILUTION_FORM_TYPES.has('S-1')).toBe(true);
+      expect(DILUTION_FORM_TYPES.has('424B5')).toBe(true);
+      expect(DILUTION_FORM_TYPES.has('8-K')).toBe(false);
+    });
+  });
+
+  describe('checkPennyStockException', () => {
+    test('allows exception with earnings catalyst and good liquidity', () => {
+      const candidate = makeCandidate({
+        last_price: 3,
+        catalysts: [{ type: 'earnings', label: 'Earnings' }]
+      });
+      candidate.indicators.last_price = 3;
+      candidate.indicators.liquidity.liquidity_rating = 'moderate';
+      const result = checkPennyStockException(candidate);
+      expect(result.allowed).toBe(true);
+    });
+
+    test('rejects exception without strong catalyst', () => {
+      const candidate = makeCandidate({
+        last_price: 3,
+        catalysts: [{ type: 'sec_filing', label: '8-K' }]
+      });
+      candidate.indicators.last_price = 3;
+      const result = checkPennyStockException(candidate);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('strong verified catalyst');
+    });
+
+    test('rejects exception with dilution risk', () => {
+      const candidate = makeCandidate({
+        last_price: 3,
+        catalysts: [
+          { type: 'earnings', label: 'Earnings' },
+          { type: 'sec_filing', label: 'S-3' }
+        ]
+      });
+      candidate.indicators.last_price = 3;
+      candidate.indicators.liquidity.liquidity_rating = 'moderate';
+      const result = checkPennyStockException(candidate);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('dilution');
+    });
+
+    test('rejects exception with very low liquidity', () => {
+      const candidate = makeCandidate({
+        last_price: 3,
+        catalysts: [{ type: 'halt', label: 'Halted' }]
+      });
+      candidate.indicators.last_price = 3;
+      candidate.indicators.liquidity.liquidity_rating = 'very_low';
+      const result = checkPennyStockException(candidate);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('liquidity');
+    });
+
+    test('rejects exception with excessive spread', () => {
+      const candidate = makeCandidate({
+        last_price: 3,
+        catalysts: [{ type: 'halt', label: 'Halted' }]
+      });
+      candidate.indicators.last_price = 3;
+      candidate.indicators.liquidity.spread_rating = 'excessive';
+      const result = checkPennyStockException(candidate);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('spread');
+    });
+  });
+
   describe('scanCandidates', () => {
     test('ranks candidates by composite score descending', () => {
       const strong = makeCandidate({
@@ -279,10 +383,12 @@ describe('scanner', () => {
       penny.indicators.last_price = 0.5;
       penny.catalysts = [];
       const results = scanCandidates([penny]);
-      expect(results).toHaveLength(0);
+      // Penny stocks without strong catalysts are AVOID, not excluded from results
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID');
     });
 
-    test('includes penny stocks with strong catalysts', () => {
+    test('includes penny stocks with strong verified catalysts (earnings/halt)', () => {
       const penny = makeCandidate({
         symbol: 'CATLY',
         last_price: 2,
@@ -292,8 +398,94 @@ describe('scanner', () => {
       penny.indicators.gap_pct = 10;
       penny.indicators.rvol = 5;
       const results = scanCandidates([penny], { excludePennyStocks: true });
-      // Should be included because it has a catalyst
       expect(results.length).toBeGreaterThan(0);
+      expect(results[0].classification).not.toBe('AVOID');
+    });
+
+    test('penny stock with weak catalyst (news only) is AVOID', () => {
+      const penny = makeCandidate({
+        symbol: 'WEAK',
+        last_price: 2,
+        catalysts: [{ type: 'sec_filing', label: '8-K' }]
+      });
+      penny.indicators.last_price = 2;
+      penny.indicators.gap_pct = 5;
+      penny.indicators.rvol = 3;
+      const results = scanCandidates([penny], { excludePennyStocks: true });
+      // SEC filing is not a STRONG catalyst type — should be AVOID
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID');
+      expect(results[0].avoid_reason).toContain('strong verified catalyst');
+    });
+
+    test('penny stock with dilution risk (S-3) is AVOID even with earnings', () => {
+      const penny = makeCandidate({
+        symbol: 'DILUT',
+        last_price: 2,
+        catalysts: [
+          { type: 'earnings', label: 'Earnings' },
+          { type: 'sec_filing', label: 'S-3' }
+        ]
+      });
+      penny.indicators.last_price = 2;
+      penny.indicators.gap_pct = 10;
+      penny.indicators.rvol = 5;
+      const results = scanCandidates([penny], { excludePennyStocks: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID');
+      expect(results[0].avoid_reason).toContain('dilution');
+    });
+
+    test('penny stock with very low liquidity is AVOID even with earnings', () => {
+      const penny = makeCandidate({
+        symbol: 'ILLIQ',
+        last_price: 2,
+        catalysts: [{ type: 'earnings', label: 'Earnings' }]
+      });
+      penny.indicators.last_price = 2;
+      penny.indicators.liquidity.liquidity_rating = 'very_low';
+      penny.indicators.gap_pct = 5;
+      penny.indicators.rvol = 3;
+      const results = scanCandidates([penny], { excludePennyStocks: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('AVOID');
+      expect(results[0].avoid_reason).toContain('liquidity');
+    });
+
+    test('non-penny stock with dilution risk gets WATCH classification and score penalty', () => {
+      const stock = makeCandidate({
+        symbol: 'DILUT2',
+        last_price: 50,
+        catalysts: [
+          { type: 'earnings', label: 'Earnings' },
+          { type: 'sec_filing', label: 'S-3' }
+        ]
+      });
+      stock.indicators.last_price = 50;
+      stock.indicators.gap_pct = 8;
+      stock.indicators.rvol = 5;
+      const results = scanCandidates([stock]);
+      expect(results).toHaveLength(1);
+      expect(results[0].classification).toBe('WATCH');
+      expect(results[0].dilution_risk).toBe(true);
+      expect(results[0].dilution_filings).toContain('S-3');
+    });
+
+    test('TRADE classification for high-scoring candidates', () => {
+      const stock = makeCandidate({
+        symbol: 'GREAT',
+        last_price: 100,
+        catalysts: [
+          { type: 'earnings', label: 'Earnings' },
+          { type: 'halt', label: 'Halted' }
+        ]
+      });
+      stock.indicators.last_price = 100;
+      stock.indicators.gap_pct = 8;
+      stock.indicators.rvol = 5;
+      stock.indicators.change_percent = 10;
+      const results = scanCandidates([stock]);
+      expect(results[0].classification).toBe('TRADE');
     });
 
     test('returns empty array for empty input', () => {

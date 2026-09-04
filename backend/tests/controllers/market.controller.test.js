@@ -59,7 +59,7 @@ describe('market.controller', () => {
   });
 
   describe('getIndices', () => {
-    test('maps Schwab quotes for the four index symbols', async () => {
+    test('maps Schwab quotes for the four default index symbols', async () => {
       finnhub.getQuotes.mockResolvedValue({
         SPY: { c: 500, d: 1.5, dp: 0.3, pc: 498.5, t: TS, source: 'schwab' },
         QQQ: { c: 400, d: -2, dp: -0.5, pc: 402, t: TS, source: 'schwab' },
@@ -75,6 +75,26 @@ describe('market.controller', () => {
       expect(spy.price).toBe(500);
       expect(spy.change_percent).toBe(0.3);
       expect(spy.source).toBe('schwab');
+    });
+
+    test('extended=true returns VIX and $COMPX in addition to base indices', async () => {
+      finnhub.getQuotes.mockResolvedValue({
+        SPY: { c: 500, d: 1.5, dp: 0.3, t: TS, source: 'schwab' },
+        QQQ: { c: 400, d: -2, dp: -0.5, t: TS, source: 'schwab' },
+        IWM: { c: 200, d: 0, dp: 0, t: TS, source: 'schwab' },
+        DIA: { c: 450, d: 3, dp: 0.67, t: TS, source: 'schwab' },
+        '$VIX': { c: 14.19, d: -0.5, dp: -3.4, t: TS, source: 'schwab' },
+        '$COMPX': { c: 26584, d: 100, dp: 0.38, t: TS, source: 'schwab' }
+      });
+      const res = mockRes();
+      await controller.getIndices({ query: { extended: 'true' } }, res);
+      expect(res.body.indices).toHaveLength(6);
+      const symbols = res.body.indices.map(i => i.symbol);
+      expect(symbols).toContain('$VIX');
+      expect(symbols).toContain('$COMPX');
+      const vix = res.body.indices.find(i => i.symbol === '$VIX');
+      expect(vix.available).toBe(true);
+      expect(vix.price).toBe(14.19);
     });
 
     test('marks unavailable when provider returns no quote', async () => {

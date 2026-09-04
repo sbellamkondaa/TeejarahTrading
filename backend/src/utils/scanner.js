@@ -321,6 +321,72 @@ function evaluateCandidate(candidate) {
   };
 }
 
+// SEC form types that indicate dilution risk
+const DILUTION_FORM_TYPES = new Set(['S-1', 'S-3', '424B5', 'S-3/A', 'S-1/A']);
+
+// Strong catalyst types that can override penny-stock exclusion
+const STRONG_CATALYST_TYPES = new Set(['earnings', 'halt', 'halt_resumed']);
+
+/**
+ * Check if a candidate has dilution risk from SEC filings.
+ * @param {object} candidate
+ * @returns {{ has_dilution_risk: boolean, filings: string[] }|null}
+ */
+function checkDilutionRisk(candidate) {
+  const catalysts = candidate.catalysts || [];
+  const dilutionFilings = catalysts.filter(c =>
+    c.type === 'sec_filing' && DILUTION_FORM_TYPES.has(c.label)
+  );
+
+  if (dilutionFilings.length === 0) return null;
+
+  return {
+    has_dilution_risk: true,
+    filings: dilutionFilings.map(f => f.label)
+  };
+}
+
+/**
+ * Check if a penny stock qualifies for an exception.
+ * Requirements:
+ * - Strong, verified catalyst (earnings, halt, or halt_resumed — NOT social/news alone)
+ * - Acceptable liquidity (not very_low)
+ * - No active dilution risk (S-3/shelf/424B5/recent offering)
+ * - If dilution risk exists, candidate is REJECTED regardless of catalyst
+ *
+ * @param {object} candidate
+ * @returns {{ allowed: boolean, reason: string }}
+ */
+function checkPennyStockException(candidate) {
+  const price = candidate.indicators?.last_price ?? candidate.last_price;
+  const catalysts = candidate.catalysts || [];
+  const liquidity = candidate.indicators?.liquidity || {};
+
+  // 1. Must have at least one STRONG catalyst type (not just news/SEC)
+  const hasStrongCatalyst = catalysts.some(c => STRONG_CATALYST_TYPES.has(c.type));
+  if (!hasStrongCatalyst) {
+    return { allowed: false, reason: 'Penny stock without strong verified catalyst (earnings/halt required)' };
+  }
+
+  // 2. Must have acceptable liquidity
+  if (liquidity.liquidity_rating === 'very_low') {
+    return { allowed: false, reason: 'Penny stock with very low liquidity' };
+  }
+
+  // 3. Check dilution risk — REJECT if present
+  const dilution = checkDilutionRisk(candidate);
+  if (dilution && dilution.has_dilution_risk) {
+    return { allowed: false, reason: `Penny stock with dilution risk: ${dilution.filings.join(', ')}` };
+  }
+
+  // 4. Excessive spread — REJECT
+  if (liquidity.spread_rating === 'excessive') {
+    return { allowed: false, reason: 'Penny stock with excessive spread' };
+  }
+
+  return { allowed: true, reason: 'Strong catalyst exception approved' };
+}
+
 /**
  * Scan a list of candidates and return ranked results.
  * @param {object[]} candidates - Array of mover data (with indicators and catalysts)
@@ -336,9 +402,67 @@ function scanCandidates(candidates, options = {}) {
 
   for (const candidate of candidates) {
     const price = candidate.indicators?.last_price ?? candidate.last_price;
+
+    // Penny-stock policy: exclude sub-$5 by default
     if (excludePennyStocks && price && price < 5) {
-      // Skip penny stocks unless they have a strong catalyst
-      if (!candidate.catalysts || candidate.catalysts.length === 0) continue;
+      const exception = checkPennyStockException(candidate);
+      if (!exception.allowed) {
+        // Classify as AVOID — include in results with a flag but don't rank
+        results.push({
+          symbol: candidate.symbol,
+          company_name: candidate.company_name ?? candidate.indicators?.company_name,
+          last_price: price,
+          change_percent: candidate.indicators?.change_percent ?? candidate.change_percent,
+          gap_pct: candidate.indicators?.gap_pct,
+          rvol: candidate.indicators?.rvol,
+          halted: candidate.halted,
+          catalysts: candidate.catalysts || [],
+          setups: [],
+          best_setup: null,
+          composite_score: 0,
+          classification: 'AVOID',
+          avoid_reason: exception.reason,
+          liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
+          session: candidate.session
+        });
+        continue;
+      }
+    }
+
+    // Check dilution risk for ALL stocks (not just penny stocks)
+    const dilution = checkDilutionRisk(candidate);
+    if (dilution && dilution.has_dilution_risk) {
+      // Penalize dilution risk — reduce score but don't auto-reject for non-penny
+      const evaluation = evaluateCandidate(candidate);
+      if (evaluation.qualifies && evaluation.composite_score >= minScore) {
+        evaluation.composite_score = Math.max(0, evaluation.composite_score - 20);
+        evaluation.setups.forEach(s => { s.score = Math.max(0, s.score - 20); });
+      }
+      if (evaluation.best_setup) {
+        evaluation.best_setup.reason += `; Dilution risk: ${dilution.filings.join(', ')}`;
+      }
+
+      results.push({
+        symbol: candidate.symbol,
+        company_name: candidate.company_name ?? candidate.indicators?.company_name,
+        last_price: price,
+        change_percent: candidate.indicators?.change_percent ?? candidate.change_percent,
+        gap_pct: candidate.indicators?.gap_pct,
+        rvol: candidate.indicators?.rvol,
+        vwap: candidate.indicators?.vwap,
+        trend_regime: candidate.indicators?.trend_regime,
+        halted: candidate.halted,
+        catalysts: candidate.catalysts || [],
+        setups: evaluation.setups,
+        best_setup: evaluation.best_setup,
+        composite_score: evaluation.composite_score,
+        dilution_risk: true,
+        dilution_filings: dilution.filings,
+        classification: 'WATCH',
+        liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
+        session: candidate.session
+      });
+      continue;
     }
 
     const evaluation = evaluateCandidate(candidate);
@@ -359,13 +483,20 @@ function scanCandidates(candidates, options = {}) {
       setups: evaluation.setups,
       best_setup: evaluation.best_setup,
       composite_score: evaluation.composite_score,
+      classification: evaluation.composite_score >= 70 ? 'TRADE' : 'WATCH',
       liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
       session: candidate.session
     });
   }
 
-  // Sort by composite score descending
-  results.sort((a, b) => b.composite_score - a.composite_score);
+  // Sort: TRADE candidates first (by score), then WATCH, then AVOID
+  const classificationOrder = { TRADE: 0, WATCH: 1, AVOID: 2 };
+  results.sort((a, b) => {
+    const aOrder = classificationOrder[a.classification] ?? 3;
+    const bOrder = classificationOrder[b.classification] ?? 3;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return (b.composite_score || 0) - (a.composite_score || 0);
+  });
 
   return results.slice(0, maxResults);
 }
@@ -373,7 +504,11 @@ function scanCandidates(candidates, options = {}) {
 module.exports = {
   SETUP_TYPES,
   MIN_CANDIDATE_SCORE,
+  DILUTION_FORM_TYPES,
+  STRONG_CATALYST_TYPES,
   scoreSetup,
   evaluateCandidate,
+  checkDilutionRisk,
+  checkPennyStockException,
   scanCandidates
 };

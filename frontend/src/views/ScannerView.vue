@@ -101,7 +101,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import api from '@/services/api'
 
 const candidates = ref([])
@@ -198,7 +198,16 @@ function catalystClass(type) {
   }
 }
 
-onMounted(() => { fetchScanner() })
+let pollTimer = null
+
+onMounted(() => {
+  fetchScanner()
+  pollTimer = setInterval(() => { fetchScanner() }, 30000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
 </script>
 
 <style scoped>

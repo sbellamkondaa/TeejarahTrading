@@ -194,7 +194,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import api from '@/services/api'
 
 const movers = ref([])
@@ -207,6 +207,8 @@ const asOfLabel = ref('')
 const stale = ref(false)
 const source = ref('')
 const indices = ref(null)
+
+let pollTimer = null
 
 const categories = [
   { value: 'active', label: 'Most Active' },
@@ -322,6 +324,12 @@ function catalystClass(type) {
 
 onMounted(() => {
   fetchMovers()
+  // Bounded polling: refresh movers every 30s (data is Redis-cached 60s on backend)
+  pollTimer = setInterval(() => { fetchMovers() }, 30000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
 })
 </script>
 

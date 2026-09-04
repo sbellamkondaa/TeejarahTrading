@@ -11,6 +11,11 @@ const { scanCandidates } = require('../utils/scanner');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
+// Extended index set for the mover/scanner index strip. VIX and Nasdaq
+// Composite use Schwab's index symbols ($VIX, $COMPX) which are verified to
+// return real quotes via the existing getQuotes path.
+const EXTENDED_INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', '$VIX', '$COMPX'];
+
 // Market-representative symbols used as a proxy for general market news. Reuses
 // the existing Finnhub company-news pipeline (already cached) rather than a new
 // provider; no scraper, no AI summarization.
@@ -48,17 +53,20 @@ function numberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-// GET /api/market/indices
+// GET /api/market/indices?extended=true
 async function getIndices(req, res) {
+  const useExtended = String(req.query.extended || '').toLowerCase() === 'true';
+  const symbols = useExtended ? EXTENDED_INDEX_SYMBOLS : INDEX_SYMBOLS;
+
   let quotes;
   try {
-    quotes = await finnhub.getQuotes(INDEX_SYMBOLS);
+    quotes = await finnhub.getQuotes(symbols);
   } catch (error) {
     logger.error('[MARKET] indices quote error: ' + error.message);
     quotes = {};
   }
 
-  const indices = INDEX_SYMBOLS.map((symbol) => {
+  const indices = symbols.map((symbol) => {
     const q = quotes && quotes[symbol];
     if (!q || q.c == null) {
       return { symbol, available: false };
@@ -563,8 +571,8 @@ async function getMovers(req, res) {
   // Fetch index quotes for market context (reuse existing infrastructure)
   let indices = null;
   try {
-    const indexQuotes = await finnhub.getQuotes(INDEX_SYMBOLS);
-    indices = INDEX_SYMBOLS.map((sym) => {
+    const indexQuotes = await finnhub.getQuotes(EXTENDED_INDEX_SYMBOLS);
+    indices = EXTENDED_INDEX_SYMBOLS.map((sym) => {
       const q = indexQuotes[sym];
       if (!q || q.c == null) return { symbol: sym, available: false };
       return {
@@ -722,6 +730,26 @@ async function getScanner(req, res) {
     excludePennyStocks
   });
 
+  // Fetch extended index quotes for market context
+  let indices = null;
+  try {
+    const indexQuotes = await finnhub.getQuotes(EXTENDED_INDEX_SYMBOLS);
+    indices = EXTENDED_INDEX_SYMBOLS.map((sym) => {
+      const q = indexQuotes[sym];
+      if (!q || q.c == null) return { symbol: sym, available: false };
+      return {
+        symbol: sym,
+        available: true,
+        price: numberOrNull(q.c),
+        change: numberOrNull(q.d),
+        change_percent: numberOrNull(q.dp),
+        timestamp: numberOrNull(q.t)
+      };
+    });
+  } catch (err) {
+    logger.warn('[MARKET] Scanner index quotes failed: ' + err.message);
+  }
+
   const session = getMarketSession();
   const asOf = fetchedAts.length ? Math.min(...fetchedAts) : Date.now();
 
@@ -730,6 +758,7 @@ async function getScanner(req, res) {
     session_label: session.label,
     as_of: asOf,
     source,
+    indices,
     candidates: results,
     count: results.length,
     min_score: minScore

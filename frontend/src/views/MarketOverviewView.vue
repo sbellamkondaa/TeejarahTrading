@@ -266,7 +266,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import api from '@/services/api'
 
 const indicesState = reactive({ loading: false, error: null, data: null })
@@ -275,11 +275,14 @@ const newsState = reactive({ loading: false, error: null, data: null })
 const earningsState = reactive({ loading: false, error: null, data: null, fetched_at: null })
 const filingsState = reactive({ loading: false, error: null, data: null })
 
+let indicesTimer = null
+let haltsTimer = null
+
 async function fetchIndices() {
   indicesState.loading = true
   indicesState.error = null
   try {
-    const { data } = await api.get('/market/indices')
+    const { data } = await api.get('/market/indices', { params: { extended: 'true' } })
     indicesState.data = data.indices
   } catch (err) {
     indicesState.error = err?.response?.data?.error || err?.message || 'Request failed'
@@ -394,6 +397,14 @@ onMounted(() => {
   fetchNews()
   fetchEarnings()
   fetchFilings()
+  // Bounded polling: indices every 30s (live data), halts every 60s
+  indicesTimer = setInterval(() => { fetchIndices() }, 30000)
+  haltsTimer = setInterval(() => { fetchHalts() }, 60000)
+})
+
+onUnmounted(() => {
+  if (indicesTimer) clearInterval(indicesTimer)
+  if (haltsTimer) clearInterval(haltsTimer)
 })
 </script>
 
