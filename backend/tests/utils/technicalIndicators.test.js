@@ -89,8 +89,8 @@ describe('technicalIndicators', () => {
       expect(vwap).not.toBeNull();
       // VWAP = sum(tp*vol)/sum(vol)
       // tp1=(102+98+100)/3=100, tp2=(103+99+101)/3=101, tp3=(104+100+103)/3=102.33
-      // = (100*1000 + 101*2000 + 102.33*1500) / 4500
-      expect(vwap).toBeCloseTo(101.11, 1);
+      // = (100*1000 + 101*2000 + 102.33*1500) / 4500 = 101.22
+      expect(vwap).toBeCloseTo(101.22, 1);
     });
 
     test('returns null for empty candles', () => {

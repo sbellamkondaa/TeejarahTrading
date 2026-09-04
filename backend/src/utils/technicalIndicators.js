@@ -553,6 +553,18 @@ function calculateAll(params) {
   const dataAsOf = Date.now();
   const source = 'schwab-candles';
 
+  // Initialize all keys to null so consumers can distinguish "not available"
+  // from "not computed" and the _meta.unavailable list is accurate.
+  const allKeys = [
+    'ema_9', 'ema_20', 'ema_50', 'ema_200', 'trend_regime',
+    'atr_14', 'atr_pct', 'volatility_regime',
+    'vwap', 'vwap_distance', 'hod', 'lod', 'opening_range',
+    'prev_high', 'prev_low', 'prev_close', 'gap_pct',
+    'avg_daily_volume', 'rvol', 'volume_trend',
+    'support_resistance', 'relative_strength', 'liquidity'
+  ];
+  for (const k of allKeys) indicators[k] = null;
+
   // EMA 9/20/50/200
   if (closes.length > 0) {
     Object.assign(indicators, getEMAValues(closes));
@@ -567,7 +579,9 @@ function calculateAll(params) {
 
   // Volatility regime
   if (atr && isNum(lastPrice)) {
-    Object.assign(indicators, calculateVolatilityRegime(atr, lastPrice));
+    const volRegime = calculateVolatilityRegime(atr, lastPrice);
+    indicators.volatility_regime = volRegime ? volRegime.regime : 'insufficient_data';
+    indicators.atr_pct = volRegime ? volRegime.atr_pct : null;
   } else {
     indicators.volatility_regime = 'insufficient_data';
   }
