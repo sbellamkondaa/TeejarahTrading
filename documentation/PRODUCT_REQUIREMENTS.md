@@ -13,7 +13,9 @@ The system should help the user:
 - produce advisory trade plans
 - validate strategies through paper trading
 
-Live order placement is out of scope until explicitly approved and separately implemented.
+Live order placement is part of the long-term product scope but must remain
+disabled until explicitly implemented, validated through PAPER/BACKTEST modes,
+and explicitly enabled by the user.
 
 ## Data Source Strategy
 
@@ -305,3 +307,171 @@ For each new feature:
 5. add API/UI incrementally
 6. add AI only after deterministic inputs are trustworthy
 7. validate with paper-trade or historical data before relying on it
+
+## Semi-Automated Trading System
+
+Primary production workflow:
+
+SCAN
+→ ANALYZE
+→ RISK CHECK
+→ USER APPROVAL
+→ EXECUTE
+→ MANAGE
+→ JOURNAL
+
+Live trading must never be unrestricted by default.
+
+Required feature flags:
+
+- ENABLE_LIVE_TRADING=false
+- ENABLE_AUTO_EXECUTION=false
+- ENABLE_SMALL_CAP_MOMENTUM=false
+
+These defaults must remain false unless explicitly changed by the user.
+
+### Core invariants
+
+- No live order may be submitted without explicit user approval in initial production mode.
+- Short selling is disabled initially.
+- Net sell quantity must never exceed the actual long position quantity unless short selling is explicitly enabled.
+- Schwab is the source of truth for broker order/position reconciliation.
+- Strategy logic cannot override hard risk-engine constraints.
+- Historical probability must come from observed/backtested data only.
+- AI confidence must remain separate from empirical setup probability.
+- Approval must reference an immutable/versioned trade proposal.
+- A materially stale proposal must be revalidated before execution.
+
+### Execution modes
+
+- BACKTEST
+- PAPER
+- LIVE
+
+Default development/production-safe mode:
+
+PAPER
+
+### Initial strategy
+
+Catalyst Momentum + VWAP Reclaim
+
+Default universe:
+- NYSE/NASDAQ common stocks
+- generally price > $5
+- average daily volume > 1M
+- OTC excluded
+- low-float/small-cap disabled by default
+- penny stocks require an exceptional verified catalyst and must pass dilution/liquidity checks
+
+Primary timeframe:
+- 5-minute
+
+Supporting:
+- 1-minute optional
+- 15-minute confirmation
+- daily context
+
+Entry modes:
+1. Reclaim candle closes above VWAP, entry above reclaim candle high
+2. VWAP reclaim followed by successful VWAP retest/hold
+
+Minimum preferred R:R to T1:
+2.0, configurable
+
+### Trade proposal lifecycle
+
+A trade proposal must preserve:
+- strategy version
+- signal snapshot
+- market snapshot
+- catalyst evidence
+- technical evidence
+- fundamental evidence
+- entry zone/trigger
+- stop/invalidation
+- T1/T2/runner
+- position size
+- risk dollars
+- R:R
+- warnings
+- historical statistics snapshot
+- timestamps
+
+Lifecycle:
+SIGNAL_DETECTED
+→ SIGNAL_VALIDATING
+→ READY_FOR_APPROVAL
+→ APPROVED / REJECTED / WATCH
+→ execution lifecycle
+
+Approval alone must not bypass final broker/risk revalidation.
+
+### Order state machine
+
+Support persisted states:
+- SIGNAL_DETECTED
+- SIGNAL_VALIDATING
+- READY_FOR_APPROVAL
+- APPROVED
+- REJECTED
+- ENTRY_SUBMITTED
+- ENTRY_PARTIALLY_FILLED
+- ENTRY_FILLED
+- ENTRY_CANCELLED
+- POSITION_ACTIVE
+- T1_FILLED
+- T2_FILLED
+- STOP_FILLED
+- POSITION_CLOSED
+- ERROR
+- MANUAL_INTERVENTION_REQUIRED
+
+System must survive:
+- restarts
+- network failure
+- stale broker sessions
+- duplicate responses/callbacks
+- partial fills
+- delayed fills
+
+### Risk controls
+
+Hard configurable controls:
+- max risk/trade
+- max daily loss
+- max weekly loss
+- max open positions
+- max pending entries
+- max total exposure
+- max sector exposure
+- max loss streak
+- max trades/day
+- max spread
+- max slippage
+- minimum liquidity
+- minimum ADV
+- minimum RVOL
+- no averaging down
+- no martingale
+- no doubling after losses
+
+Global controls:
+- STOP NEW TRADING
+- CANCEL ALL PENDING ENTRY ORDERS
+
+Neither action should automatically liquidate existing positions.
+
+### Live workstation
+
+A single-tab trading workstation must eventually provide:
+- Market context
+- Movers
+- Scanner
+- News/catalysts
+- Halts/resumptions
+- Selected-symbol charts
+- Technical/fundamental context
+- Trade proposal panel
+- APPROVE / REJECT / WATCH / EDIT
+- Position/order management after approval

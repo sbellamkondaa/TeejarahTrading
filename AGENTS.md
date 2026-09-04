@@ -136,12 +136,18 @@ Do not scrape Yahoo Finance, Finviz, Seeking Alpha, or similar sites for product
 
 Remote SSH alias: `teejarah`.
 
-Production is Docker-based and uses all required Compose overlays. Never assume `docker-compose.yaml` alone is sufficient.
+Production is Docker-based and uses all required Compose overlays. Never assume
+`docker-compose.yaml` alone is sufficient.
 
 Do not edit production source directly over SSH when the change can be made in Git.
 
-Deployment-changing SSH/Docker operations require user approval.
-Destructive Docker/Git operations must not be run automatically.
+Approved Teejarah deployment/status/build wrappers may run autonomously during
+`/fullcycle`.
+
+Arbitrary SSH, Docker, sudo, firewall, destructive Git operations, secret changes,
+and operations outside approved wrappers require explicit user approval.
+
+Destructive Docker/Git operations must never run automatically.
 
 ## Testing
 
@@ -178,3 +184,18 @@ Use `documentation/PROJECT_STATE.md` for current implementation/status.
 
 Do not assume either file is more current than the live Git working tree.
 When state conflicts with Git/code, report the discrepancy and use the live repository as implementation truth.
+## Trading Automation Safety
+
+For Teejarah trading automation:
+
+- Never enable live trading automatically.
+- Never enable auto execution automatically.
+- Never enable small-cap momentum live execution automatically.
+- Never place a live broker order during development/testing.
+- Never expose broker credentials/tokens to frontend or logs.
+- Never allow strategy code to bypass risk-engine rejection.
+- Never allow net sell quantity > long position quantity unless short selling is explicitly enabled.
+- Never invent Schwab advanced-order behavior; inspect real project/API support first.
+- Never display fabricated win probability.
+- Approval must always be tied to a specific persisted/versioned trade proposal.
+- Revalidate quote freshness, halt state, buying power, risk, and broker state before execution.
