@@ -385,10 +385,10 @@ describe('market.controller', () => {
     test('returns movers with gap_pct calculated from batch quotes', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'NVDA', description: 'NVIDIA CORP', lastPrice: 230, netChange: 5, netPercentChange: 0.022, volume: 1000000 }
+          { symbol: 'NVDA', description: 'NVIDIA CORP', last_price: 230, net_change: 5, net_percent_change: 0.022, volume: 1000000 }
         ]))
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'INTC', description: 'INTEL CORP', lastPrice: 93, netChange: -2, netPercentChange: -0.021, volume: 500000 }
+          { symbol: 'INTC', description: 'INTEL CORP', last_price: 93, net_change: -2, net_percent_change: -0.021, volume: 500000 }
         ]))
         .mockResolvedValueOnce(mockMoversResult([]));
 
@@ -420,8 +420,8 @@ describe('market.controller', () => {
     test('active category sorts by volume descending', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'LOW_VOL', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
-          { symbol: 'HIGH_VOL', lastPrice: 50, netChange: -1, netPercentChange: -0.02, volume: 5000000 }
+          { symbol: 'LOW_VOL', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 },
+          { symbol: 'HIGH_VOL', last_price: 50, net_change: -1, net_percent_change: -0.02, volume: 5000000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -438,9 +438,9 @@ describe('market.controller', () => {
     test('gainers category filters to positive change and sorts by change_percent desc', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'UP1', lastPrice: 10, netChange: 0.5, netPercentChange: 0.05, volume: 1000 },
-          { symbol: 'DOWN', lastPrice: 10, netChange: -0.5, netPercentChange: -0.05, volume: 1000 },
-          { symbol: 'UP2', lastPrice: 20, netChange: 2, netPercentChange: 0.11, volume: 1000 }
+          { symbol: 'UP1', last_price: 10, net_change: 0.5, net_percent_change: 0.05, volume: 1000 },
+          { symbol: 'DOWN', last_price: 10, net_change: -0.5, net_percent_change: -0.05, volume: 1000 },
+          { symbol: 'UP2', last_price: 20, net_change: 2, net_percent_change: 0.11, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -458,9 +458,9 @@ describe('market.controller', () => {
     test('losers category filters to negative change and sorts by change_percent asc', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'UP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
-          { symbol: 'DOWN1', lastPrice: 10, netChange: -0.5, netPercentChange: -0.05, volume: 1000 },
-          { symbol: 'DOWN2', lastPrice: 10, netChange: -1, netPercentChange: -0.1, volume: 1000 }
+          { symbol: 'UP', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 },
+          { symbol: 'DOWN1', last_price: 10, net_change: -0.5, net_percent_change: -0.05, volume: 1000 },
+          { symbol: 'DOWN2', last_price: 10, net_change: -1, net_percent_change: -0.1, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -499,8 +499,8 @@ describe('market.controller', () => {
     test('price filters exclude out-of-range movers', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'CHEAP', lastPrice: 5, netChange: 1, netPercentChange: 0.2, volume: 1000 },
-          { symbol: 'PRICEY', lastPrice: 500, netChange: 1, netPercentChange: 0.002, volume: 1000 }
+          { symbol: 'CHEAP', last_price: 5, net_change: 1, net_percent_change: 0.2, volume: 1000 },
+          { symbol: 'PRICEY', last_price: 500, net_change: 1, net_percent_change: 0.002, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -515,8 +515,8 @@ describe('market.controller', () => {
     test('min_volume filter excludes low-volume movers', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'LOW', lastPrice: 50, netChange: 1, netPercentChange: 0.02, volume: 500 },
-          { symbol: 'HIGH', lastPrice: 50, netChange: 1, netPercentChange: 0.02, volume: 5000000 }
+          { symbol: 'LOW', last_price: 50, net_change: 1, net_percent_change: 0.02, volume: 500 },
+          { symbol: 'HIGH', last_price: 50, net_change: 1, net_percent_change: 0.02, volume: 5000000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -532,8 +532,8 @@ describe('market.controller', () => {
     test('include_halted=false filters out halted symbols', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'HALT', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
-          { symbol: 'OPEN', lastPrice: 20, netChange: 1, netPercentChange: 0.05, volume: 1000 }
+          { symbol: 'HALT', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 },
+          { symbol: 'OPEN', last_price: 20, net_change: 1, net_percent_change: 0.05, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -553,7 +553,7 @@ describe('market.controller', () => {
     test('halted flag is set on movers with active halts', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'STOPPED', lastPrice: 10, netChange: 0, netPercentChange: 0, volume: 1000 }
+          { symbol: 'STOPPED', last_price: 10, net_change: 0, net_percent_change: 0, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -570,13 +570,18 @@ describe('market.controller', () => {
     test('catalyst enrichment adds badges from halts, earnings, SEC', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'CATL', description: 'Catalyst Corp', lastPrice: 50, netChange: 2, netPercentChange: 0.04, volume: 1000000 }
+          { symbol: 'CATL', description: 'Catalyst Corp', last_price: 50, net_change: 2, net_percent_change: 0.04, volume: 1000000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
       finnhub.getQuotes.mockResolvedValue({ CATL: { pc: 48, t: TS } });
-      // db.query calls in order: halt check, earnings cache, SEC filings
+      // db.query calls in order:
+      // 1. halt-status check (SELECT DISTINCT symbol FROM market_halts...)
+      // 2. catalyst halts (SELECT symbol, halt_type, halted_at...)
+      // 3. catalyst earnings (SELECT earnings_data...)
+      // 4. catalyst SEC (SELECT sc.ticker, sf.form_type...)
       db.query
+        .mockResolvedValueOnce({ rows: [] })  // halt-status: not halted
         .mockResolvedValueOnce({ rows: [{ symbol: 'CATL', is_resumption: false, halt_type: 'LUDP', halted_at: '2026-09-04T13:00:00Z' }] })
         .mockResolvedValueOnce({ rows: [{ earnings_data: [{ symbol: 'CATL', date: '2026-09-05' }] }] })
         .mockResolvedValueOnce({ rows: [{ ticker: 'CATL', form_type: '8-K', filing_date: '2026-09-03' }] });
@@ -594,7 +599,7 @@ describe('market.controller', () => {
     test('gap_pct is null when previous close is missing', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'NOGAP', lastPrice: 100, netChange: 5, netPercentChange: 0.05, volume: 1000 }
+          { symbol: 'NOGAP', last_price: 100, net_change: 5, net_percent_change: 0.05, volume: 1000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -624,7 +629,10 @@ describe('market.controller', () => {
 
     test('returns indices from batch quote', async () => {
       schwabMarketData.getMovers.mockResolvedValue(mockMoversResult([]));
-      finnhub.getQuotes.mockResolvedValue({
+      // First getQuotes call: mover symbols (empty) -> returns {}
+      finnhub.getQuotes.mockResolvedValueOnce({});
+      // Second getQuotes call: index symbols -> returns index data
+      finnhub.getQuotes.mockResolvedValueOnce({
         SPY: { c: 500, d: 1, dp: 0.2, t: TS },
         QQQ: { c: 400, d: 0, dp: 0, t: TS },
         IWM: { c: 200, d: -1, dp: -0.5, t: TS },
@@ -643,7 +651,7 @@ describe('market.controller', () => {
     test('premarket_volume and rvol are null (not available)', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'X', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 50000 }
+          { symbol: 'X', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 50000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
@@ -672,11 +680,11 @@ describe('market.controller', () => {
     test('deduplicates symbols across indexes', async () => {
       schwabMarketData.getMovers
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'DUP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 }
+          { symbol: 'DUP', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 }
         ]))
         .mockResolvedValueOnce(mockMoversResult([
-          { symbol: 'DUP', lastPrice: 10, netChange: 1, netPercentChange: 0.1, volume: 1000 },
-          { symbol: 'UNIQ', lastPrice: 20, netChange: 0, netPercentChange: 0, volume: 2000 }
+          { symbol: 'DUP', last_price: 10, net_change: 1, net_percent_change: 0.1, volume: 1000 },
+          { symbol: 'UNIQ', last_price: 20, net_change: 0, net_percent_change: 0, volume: 2000 }
         ]))
         .mockResolvedValue(mockMoversResult([]));
 
