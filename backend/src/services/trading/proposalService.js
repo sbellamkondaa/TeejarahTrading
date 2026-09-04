@@ -12,6 +12,7 @@
 const db = require('../../config/database');
 const audit = require('./auditService');
 const { resolveMode } = require('./executionMode');
+const { canBecomeReadyForApproval, isEvaluationStale, getLatestEvaluation } = require('./riskEngine');
 
 // Valid lifecycle transitions per the state machine in PRODUCT_REQUIREMENTS.md
 const TRANSITIONS = {
@@ -44,9 +45,18 @@ async function createProposal({
   executionMode, entryZone, stopPrice, t1Price, t2Price, runnerTarget,
   positionSize, riskAmount, rrRatio,
   marketSnapshot, catalystEvidence, technicalEvidence,
-  fundamentalEvidence, warnings, historicalStats, dataSources
+  fundamentalEvidence, warnings, historicalStats, dataSources,
+  riskState, riskRejected
 }) {
   const mode = resolveMode(executionMode);
+
+  // Risk engine is authoritative: a proposal is only READY_FOR_APPROVAL when
+  // risk state is explicitly VALID or WATCH-eligible. REJECTED or unevaluated
+  // proposals start in SIGNAL_DETECTED and cannot be approved until risk is
+  // recalculated and passes.
+  const initialState = (riskState === 'VALID' || riskState === 'WATCH')
+    ? 'READY_FOR_APPROVAL'
+    : 'SIGNAL_DETECTED';
 
   const result = await db.query(
     `INSERT INTO trade_proposals (
@@ -56,13 +66,14 @@ async function createProposal({
        market_snapshot, catalyst_evidence, technical_evidence,
        fundamental_evidence, warnings, historical_stats, data_sources
      ) VALUES (
-       $1, $2, $3, $4, $5, 'READY_FOR_APPROVAL',
-       $6, $7, $8, $9, $10,
-       $11, $12, $13,
-       $14, $15, $16, $17, $18, $19, $20
+       $1, $2, $3, $4, $5, $6,
+       $7, $8, $9, $10, $11,
+       $12, $13, $14,
+       $15, $16, $17, $18, $19, $20, $21
      ) RETURNING *`,
     [
       signalId, strategyId, symbol.toUpperCase(), direction, mode,
+      initialState,
       JSON.stringify(entryZone || {}),
       stopPrice || null, t1Price || null, t2Price || null, runnerTarget || null,
       positionSize || null, riskAmount || null, rrRatio || null,
@@ -135,6 +146,19 @@ async function transitionState(proposalId, newState, userId = null) {
     );
   }
 
+  // Risk engine is authoritative: transitioning to READY_FOR_APPROVAL or
+  // APPROVED requires a fresh, non-REJECTED risk evaluation. This prevents
+  // strategy code or manual edits from bypassing risk rejection.
+  if (['READY_FOR_APPROVAL', 'APPROVED'].includes(newState)) {
+    const evaluation = await getLatestEvaluation(proposalId);
+    if (!canBecomeReadyForApproval(evaluation)) {
+      throw new Error('Risk evaluation is REJECTED or missing — cannot approve');
+    }
+    if (isEvaluationStale(evaluation, proposal)) {
+      throw new Error('Risk evaluation is stale — recalculate before approval');
+    }
+  }
+
   const result = await db.query(
     `UPDATE trade_proposals
      SET lifecycle_state = $2, updated_at = CURRENT_TIMESTAMP
@@ -157,6 +181,17 @@ async function recordApproval(proposalId, userId, decision, note = null) {
   const proposal = await getById(proposalId);
   if (!proposal) {
     throw new Error('Proposal not found');
+  }
+
+  // Approval requires a fresh, non-REJECTED risk evaluation.
+  if (decision === 'approved') {
+    const evaluation = await getLatestEvaluation(proposalId);
+    if (!canBecomeReadyForApproval(evaluation)) {
+      throw new Error('Risk evaluation is REJECTED or missing — cannot approve');
+    }
+    if (isEvaluationStale(evaluation, proposal)) {
+      throw new Error('Risk evaluation is stale — recalculate before approval');
+    }
   }
 
   const result = await db.query(

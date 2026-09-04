@@ -31,6 +31,7 @@ const { assessDilutionRisk } = require('../dilutionRiskEngine');
 const { buildFundamentalProfiles } = require('../fundamentalEngine');
 const signalService = require('./signalService');
 const proposalService = require('./proposalService');
+const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, DEFAULT_RISK_CONFIG } = require('./riskEngine');
 
 const STRATEGY_NAME = 'catalyst_momentum_vwap_reclaim';
 
@@ -50,7 +51,9 @@ const DEFAULT_CONFIG = {
   t2RrTarget: 4.0,
   runnerRrTarget: 8.0,
   maxProposals: 5,
-  excludeOtc: true
+  excludeOtc: true,
+  // Risk engine overrides (see riskEngine.DEFAULT_RISK_CONFIG)
+  risk: {}
 };
 
 function mergeConfig(dbConfig) {
@@ -61,9 +64,10 @@ function mergeConfig(dbConfig) {
  * Run the strategy scan on the current universe of scanner candidates.
  * @param {string} strategyId - UUID of the strategy row in trading_strategies
  * @param {object} config - Merged strategy config
+ * @param {string} [userId] - Optional user id for account-equity-based position sizing
  * @returns {Promise<{ signals: array, proposals: array }>}
  */
-async function runScan(strategyId, config) {
+async function runScan(strategyId, config, userId) {
   const cfg = mergeConfig(config);
 
   // 1. Get current movers from Schwab (reuse the same path as the scanner)
@@ -116,6 +120,9 @@ async function runScan(strategyId, config) {
   }
 
   const candidateSymbols = candidates.map((c) => c.symbol);
+
+  // Load account context once for deterministic position sizing.
+  const accountContext = await getAccountContext(userId);
 
   // 4. Get catalysts for all candidates (batched)
   const priceContext = {};
@@ -349,7 +356,51 @@ async function runScan(strategyId, config) {
           logger.warn(`[CATALYST-VWAP] Dilution check failed for ${sym}: ${err.message}`);
         }
 
+        // ── Deterministic position sizing + risk check ──
+        const portfolioCtx = await getPortfolioRiskContext(userId, sym);
+        const dilutionLevel = warnings.find((w) => w.type === 'dilution_risk')?.level || null;
+
+        const riskEval = evaluateRisk({
+          entryPrice: entryPrice,
+          stopPrice: stopPrice,
+          t1Price: t1Price,
+          t2Price: t2Price,
+          direction: 'long',
+          accountEquity: accountContext.account_equity,
+          strategyVersion: `${STRATEGY_NAME}@v1`,
+          spreadPct: liquidity.spread_pct,
+          liquidityRating: liquidity.liquidity_rating,
+          avgDailyVolume: candidate.total_volume,
+          rvol: indicators.rvol,
+          dilutionLevel,
+          dataAsOf: Date.now(),
+          ...portfolioCtx
+        }, { ...DEFAULT_RISK_CONFIG, ...(cfg.risk || {}) });
+
+        let positionSize = null;
+        let riskAmount = null;
+        let proposalRrRatio = rrRatio;
+        if (riskEval.state !== 'REJECTED' && riskEval.suggested_shares > 0) {
+          positionSize = riskEval.suggested_shares;
+          riskAmount = riskEval.total_dollar_risk;
+          if (riskEval.rr_t1 != null) {
+            proposalRrRatio = riskEval.rr_t1;
+          }
+        }
+        if (riskEval.state === 'REJECTED') {
+          warnings.push({
+            type: 'risk_rejected',
+            reasons: riskEval.rejection_reasons
+          });
+        }
+        if (riskEval.warnings && riskEval.warnings.length) {
+          warnings.push({ type: 'risk_warnings', items: riskEval.warnings });
+        }
+
         // ── Create proposal ──
+        // Risk-rejected proposals are still created in SIGNAL_DETECTED state
+        // (advisory) — they do NOT auto-promote to READY_FOR_APPROVAL.
+        const riskRejected = riskEval.state === 'REJECTED';
         const proposal = await proposalService.createProposal({
           signalId: signal.id,
           strategyId,
@@ -361,16 +412,27 @@ async function runScan(strategyId, config) {
           t1Price: t1Price.toFixed(4),
           t2Price: t2Price.toFixed(4),
           runnerTarget: runnerTarget.toFixed(4),
-          rrRatio: rrRatio,
+          positionSize,
+          riskAmount,
+          rrRatio: proposalRrRatio,
           marketSnapshot,
           catalystEvidence,
           technicalEvidence,
           fundamentalEvidence,
           warnings,
           historicalStats: {}, // Never fabricate — populated when backtest data exists
-          dataSources
+          dataSources,
+          riskState: riskEval.state,
+          riskRejected
         });
         proposals.push(proposal);
+
+        // Persist the risk evaluation (reproducible).
+        try {
+          await persistEvaluation(proposal.id, riskEval);
+        } catch (err) {
+          logger.warn(`[CATALYST-VWAP] Risk eval persist failed for ${sym}: ${err.message}`);
+        }
 
       } catch (err) {
         logger.warn(`[CATALYST-VWAP] Evaluation failed for ${sym}: ${err.message}`);

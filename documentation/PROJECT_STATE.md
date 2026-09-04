@@ -276,6 +276,100 @@ Engine: `backend/src/services/trading/catalystMomentumStrategy.js`
 API: `POST /api/trading/strategies/:id/scan` (auth-gated)
 Frontend: Run Scan button on `/trading/proposals`
 
+## Deterministic Position Sizing + Risk Engine — Production
+
+Migration: `263_create_trade_risk_evaluations.sql` (additive — persists
+reproducible risk evaluations per proposal with full input snapshot, account
+snapshot, computed sizing, diagnostics, freshness, and config version).
+
+Engine: `backend/src/services/trading/riskEngine.js`
+
+Pure, side-effect-free position sizing + hard-risk validation per
+PRODUCT_REQUIREMENTS.md "Position Sizing":
+
+  risk_per_share    = abs(entry - stop) + slippage + fees
+  max_dollar_risk   = account_equity * risk_percent
+  suggested_shares  = floor(max_dollar_risk / risk_per_share)
+
+Also computes: total_position_value, total_dollar_risk, account_risk_pct,
+R:R to T1, R:R to T2, exposure_pct.
+
+Result state (deterministic):
+- VALID    — all HARD checks passed and all required inputs present
+- WATCH    — not rejected, but one or more HARD checks could not be evaluated
+             (missing optional data); never VALID, never REJECTED
+- REJECTED — at least one HARD check failed
+
+Principle: a HARD check that cannot be evaluated due to missing data yields
+WATCH. Values are NEVER fabricated.
+
+Risk presets: 0.25%, 0.50%, 1.00% (configurable; cannot exceed maxRiskPerTradePct).
+
+Hard checks (reject on failure):
+- valid entry / stop (missing or non-positive)
+- positive directional risk (stop on correct side)
+- penny-stock policy (price >= $5)
+- quantity > 0
+- max risk per trade (default 2% of equity)
+- max position % (default 25%)
+- max total exposure (default 100%)
+- max sector exposure (default 40%)
+- max open positions (default 10)
+- max pending entries (default 5)
+- max trades per day (default 10)
+- max consecutive losses (default 5)
+- duplicate active position (rejected when not allowed)
+- max daily loss (default 6%)
+- max weekly loss (default 12%)
+- buying power (when available)
+- max spread (default 0.5%)
+- max slippage (default $0.10/share)
+- min liquidity rating (default `low`; rejects `very_low`)
+- min ADV (default 1,000,000)
+- min RVOL (default 1.0)
+- max participation rate (default 10% of ADV)
+- stale data (default 60s max quote age)
+- halted security
+- HIGH dilution risk
+- min R:R to T1 (default 1.5)
+
+Account equity sourced deterministically from `user_settings.account_equity`.
+Portfolio context (open positions, exposure, duplicate detection) loaded from
+`trade_proposals` via `getPortfolioRiskContext`.
+
+Proposal integration (risk engine authoritative):
+- Proposals are only READY_FOR_APPROVAL when risk state is VALID or WATCH.
+  REJECTED/unevaluated proposals start in SIGNAL_DETECTED.
+- `transitionState` and `recordApproval` reject approval when risk is
+  REJECTED, missing, or stale (proposal edited after evaluation, or age > 60s).
+- Strategy code cannot bypass risk rejection.
+- Stale market/account data requires recalculation before approval.
+
+Persistence: `persistEvaluation` stores the full input_snapshot, account_snapshot,
+computed sizing, checks, warnings, rejection_reasons, data_as_of, is_stale,
+config_version, and risk_percent — fully reproducible from stored inputs.
+
+Integration: catalyst momentum strategy scan evaluates risk for each candidate,
+populates position_size/risk_amount on VALID/WATCH proposals, persists the
+evaluation, and creates REJECTED proposals in SIGNAL_DETECTED (advisory).
+
+APIs (auth-gated, advisory only — never places broker orders):
+- `POST /api/trading/proposals/:id/risk-assessment` — recalculate + persist.
+  Accepts only riskPercent (preset) and entryPrice from client; all
+  market-quality inputs sourced server-side to prevent fabrication.
+- `GET /api/trading/proposals/:id/risk-evaluation` — read latest persisted.
+- `GET /api/trading/risk-presets` — allowed presets + default + max.
+
+Frontend: `/trading/proposals` detail modal shows risk section (state badge,
+preset selector with Recalculate, account equity, max $ risk, risk/share,
+suggested shares, position value, total risk, R:R T1/T2, exposure %,
+warnings, rejection reasons, staleness indicator).
+
+Tests: `backend/tests/services/riskEngine.test.js` (47 cases: sizing formula,
+all hard-rejection paths, VALID/WATCH/REJECTED states, short direction,
+determinism/reproducibility, approval-gate helpers). Route wiring covered by
+`trading.routes.test.js`.
+
 ## Compatibility / Safety Invariants
 
 - Preserve TradeTally iOS compatibility.
@@ -338,7 +432,19 @@ Current safety defaults:
    - immutable proposal snapshots
    - advisory only (PAPER)
 
-3. Deterministic Position Sizing + Risk Engine
+3. Deterministic Position Sizing + Risk Engine ← COMPLETED
+   - pure `riskEngine.js` (no I/O in sizing, no LLM, no fabricated values)
+   - VALID / WATCH / REJECTED states
+   - position sizing: floor(account_equity * risk% / (|entry-stop| + slip + fees))
+   - 25+ hard checks (daily/weekly loss, open positions, pending entries,
+     sector/total exposure, trades/day, consecutive losses, spread, slippage,
+     liquidity, ADV, RVOL, stale data, halted, HIGH dilution, penny-stock,
+     duplicate position, min R:R, max position %, buying power, participation)
+   - risk presets: 0.25% / 0.50% / 1.00%
+   - persistent reproducible evaluations (migration 263)
+   - proposal lifecycle gating: risk authoritative, stale recalc required
+   - API: recalc / read / presets
+   - UI: risk section with preset selector
 
 4. Paper Broker
 

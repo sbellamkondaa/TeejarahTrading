@@ -25,7 +25,10 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   createProposal: jest.fn(),
   editProposal: jest.fn(),
   approveProposal: jest.fn(),
-  transitionProposal: jest.fn()
+  transitionProposal: jest.fn(),
+  assessProposalRisk: jest.fn(),
+  getProposalRisk: jest.fn(),
+  getRiskPresets: jest.fn()
 }));
 
 const express = require('express');
@@ -57,6 +60,8 @@ describe('trading.routes wiring', () => {
       '/execution-mode',
       '/proposals',
       '/proposals/:id',
+      '/proposals/:id/risk-evaluation',
+      '/risk-presets',
       '/signals',
       '/signals/:id',
       '/strategies',
@@ -69,6 +74,7 @@ describe('trading.routes wiring', () => {
     expect(paths.sort()).toEqual([
       '/proposals',
       '/proposals/:id/approval',
+      '/proposals/:id/risk-assessment',
       '/proposals/:id/transition',
       '/strategies',
       '/strategies/:id/scan',

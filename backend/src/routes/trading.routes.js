@@ -27,5 +27,8 @@ router.get('/proposals/:id', tradingController.getProposal);
 router.patch('/proposals/:id', tradingController.editProposal);
 router.post('/proposals/:id/approval', tradingController.approveProposal);
 router.post('/proposals/:id/transition', tradingController.transitionProposal);
+router.post('/proposals/:id/risk-assessment', tradingController.assessProposalRisk);
+router.get('/proposals/:id/risk-evaluation', tradingController.getProposalRisk);
+router.get('/risk-presets', tradingController.getRiskPresets);
 
 module.exports = router;

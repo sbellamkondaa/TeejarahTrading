@@ -184,6 +184,92 @@
           </ul>
         </div>
 
+        <!-- Risk evaluation -->
+        <div v-if="riskEvaluation" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-medium text-gray-500 dark:text-gray-400">Risk Evaluation</div>
+            <div class="flex items-center gap-2">
+              <span
+                class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                :class="riskStateClass(riskEvaluation.state)"
+              >{{ riskEvaluation.state }}</span>
+              <span v-if="riskStale" class="text-xs text-amber-600 dark:text-amber-400">stale</span>
+            </div>
+          </div>
+
+          <!-- Risk preset selector -->
+          <div v-if="canAct" class="mb-3 flex items-center gap-2">
+            <label class="text-xs text-gray-400">Risk %</label>
+            <select v-model.number="selectedPreset" @change="recalculateRisk" class="input w-24 text-sm">
+              <option v-for="p in riskPresets" :key="p" :value="p">{{ p }}%</option>
+            </select>
+            <button
+              @click="recalculateRisk"
+              :disabled="riskLoading"
+              class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+            >{{ riskLoading ? '…' : 'Recalculate' }}</button>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div>
+              <div class="text-gray-400 text-xs">Account Equity</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(riskEvaluation.account_equity) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Max $ Risk</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(riskEvaluation.max_dollar_risk) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Risk / Share</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(riskEvaluation.risk_per_share) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Suggested Shares</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ riskEvaluation.suggested_shares ?? '—' }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Position Value</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(riskEvaluation.total_position_value) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Total $ Risk</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(riskEvaluation.total_dollar_risk) }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">R:R T1</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ riskEvaluation.rr_t1 != null ? riskEvaluation.rr_t1.toFixed(2) : '—' }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">R:R T2</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ riskEvaluation.rr_t2 != null ? riskEvaluation.rr_t2.toFixed(2) : '—' }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Exposure %</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ riskEvaluation.exposure_pct != null ? riskEvaluation.exposure_pct.toFixed(2) + '%' : '—' }}</div>
+            </div>
+            <div>
+              <div class="text-gray-400 text-xs">Account Risk %</div>
+              <div class="text-mono-num text-gray-700 dark:text-gray-300">{{ riskEvaluation.account_risk_pct != null ? riskEvaluation.account_risk_pct.toFixed(2) + '%' : '—' }}</div>
+            </div>
+          </div>
+
+          <!-- Rejection reasons -->
+          <div v-if="riskEvaluation.rejection_reasons && riskEvaluation.rejection_reasons.length" class="mt-3">
+            <div class="text-xs font-medium text-red-600 dark:text-red-400 mb-1">Rejection Reasons</div>
+            <ul class="text-sm text-red-700 dark:text-red-300 list-disc list-inside">
+              <li v-for="(reason, i) in riskEvaluation.rejection_reasons" :key="i">{{ reason }}</li>
+            </ul>
+          </div>
+
+          <!-- Risk warnings -->
+          <div v-if="riskEvaluation.warnings && riskEvaluation.warnings.length" class="mt-2">
+            <div class="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">Risk Warnings</div>
+            <ul class="text-xs text-amber-700 dark:text-amber-300 list-disc list-inside">
+              <li v-for="(w, i) in riskEvaluation.warnings" :key="i">{{ w }}</li>
+            </ul>
+          </div>
+        </div>
+
         <!-- Approvals -->
         <div v-if="selectedProposal.approvals && selectedProposal.approvals.length" class="mt-4">
           <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Approvals</div>
@@ -285,6 +371,11 @@ const scanning = ref(false)
 const scanResult = ref('')
 const activeStrategies = ref([])
 const editForm = reactive({})
+const riskEvaluation = ref(null)
+const riskStale = ref(false)
+const riskLoading = ref(false)
+const riskPresets = ref([0.25, 0.5, 1.0])
+const selectedPreset = ref(1.0)
 
 const filters = reactive({
   status: '',
@@ -317,7 +408,18 @@ const lifecycleStates = [
 onMounted(() => {
   fetchProposals()
   fetchStrategies()
+  fetchRiskPresets()
 })
+
+async function fetchRiskPresets() {
+  try {
+    const { data } = await api.get('/trading/risk-presets')
+    riskPresets.value = data.presets || [0.25, 0.5, 1.0]
+    selectedPreset.value = data.default || 1.0
+  } catch {
+    // keep defaults
+  }
+}
 
 async function fetchStrategies() {
   try {
@@ -366,8 +468,41 @@ async function openDetail(id) {
   try {
     const { data } = await api.get(`/trading/proposals/${id}`)
     selectedProposal.value = data
+    await fetchRiskEvaluation(id)
   } catch (err) {
     error.value = err?.response?.data?.error || 'Failed to load proposal'
+  }
+}
+
+async function fetchRiskEvaluation(id) {
+  riskEvaluation.value = null
+  riskStale.value = false
+  try {
+    const { data } = await api.get(`/trading/proposals/${id}/risk-evaluation`)
+    riskEvaluation.value = data.evaluation
+    riskStale.value = data.is_stale
+    if (data.evaluation && data.evaluation.risk_percent) {
+      selectedPreset.value = Number(data.evaluation.risk_percent)
+    }
+  } catch {
+    // no evaluation yet — will be calculated on demand
+  }
+}
+
+async function recalculateRisk() {
+  const p = selectedProposal.value
+  if (!p) return
+  riskLoading.value = true
+  try {
+    const { data } = await api.post(`/trading/proposals/${p.id}/risk-assessment`, {
+      risk: { riskPercent: selectedPreset.value }
+    })
+    riskEvaluation.value = data.evaluation
+    riskStale.value = false
+  } catch (err) {
+    error.value = err?.response?.data?.error || 'Risk calculation failed'
+  } finally {
+    riskLoading.value = false
   }
 }
 
@@ -460,6 +595,15 @@ function approvalClass(decision) {
     case 'approved': return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
     case 'rejected': return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
     case 'watch': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    default: return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+  }
+}
+
+function riskStateClass(state) {
+  switch (state) {
+    case 'VALID': return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+    case 'WATCH': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    case 'REJECTED': return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
     default: return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
   }
 }

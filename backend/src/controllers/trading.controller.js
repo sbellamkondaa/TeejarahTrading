@@ -6,6 +6,7 @@ const proposalService = require('../services/trading/proposalService');
 const auditService = require('../services/trading/auditService');
 const executionMode = require('../services/trading/executionMode');
 const { runScan: runCatalystMomentumScan, STRATEGY_NAME: CATALYST_STRATEGY_NAME } = require('../services/trading/catalystMomentumStrategy');
+const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, getLatestEvaluation, isEvaluationStale, DEFAULT_RISK_CONFIG, RISK_PRESETS } = require('../services/trading/riskEngine');
 
 // --- Execution mode ---
 
@@ -195,7 +196,7 @@ async function runStrategyScan(req, res) {
   try {
     let result;
     if (strategy.name === CATALYST_STRATEGY_NAME) {
-      result = await runCatalystMomentumScan(strategy.id, strategy.config);
+      result = await runCatalystMomentumScan(strategy.id, strategy.config, req.user.id);
     } else {
       return res.status(400).json({ error: `Strategy "${strategy.name}" has no scan engine` });
     }
@@ -215,6 +216,100 @@ async function runStrategyScan(req, res) {
   }
 }
 
+// --- Risk assessment ---
+
+// Advisory-only deterministic position sizing + risk evaluation for a
+// proposal. Recalculates from current proposal inputs + account context,
+// persists the result, and returns it. Never places broker orders.
+async function assessProposalRisk(req, res) {
+  const proposal = await proposalService.getById(req.params.id);
+  if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
+
+  const strategy = await strategyService.getById(proposal.strategy_id);
+  const strategyRiskCfg = (strategy && strategy.config && strategy.config.risk) || {};
+
+  // Risk preset selection (allowed presets only; cannot bypass hard limits).
+  // Only riskPercent and entryPrice are accepted from the client — all
+  // market-quality inputs (spread, liquidity, halted, dilution, etc.) are
+  // sourced server-side to prevent fabrication of risk inputs.
+  const bodyRisk = (req.body && req.body.risk) || {};
+  let riskPercent = bodyRisk.riskPercent != null ? Number(bodyRisk.riskPercent) : (strategyRiskCfg.riskPercent || DEFAULT_RISK_CONFIG.riskPercent);
+  if (!Number.isFinite(riskPercent) || riskPercent <= 0) {
+    return res.status(400).json({ error: 'riskPercent must be a positive number' });
+  }
+  if (riskPercent > DEFAULT_RISK_CONFIG.maxRiskPerTradePct) {
+    return res.status(400).json({ error: `riskPercent ${riskPercent} exceeds max ${DEFAULT_RISK_CONFIG.maxRiskPerTradePct}%` });
+  }
+
+  const overrides = { ...DEFAULT_RISK_CONFIG, ...strategyRiskCfg, riskPercent };
+
+  const accountContext = await getAccountContext(req.user.id);
+  const portfolioCtx = await getPortfolioRiskContext(req.user.id, proposal.symbol);
+
+  const entryPrice = bodyRisk.entryPrice != null
+    ? bodyRisk.entryPrice
+    : (proposal.entry_zone && (proposal.entry_zone.high || proposal.entry_zone.low)) || null;
+
+  const evalInput = {
+    entryPrice,
+    stopPrice: proposal.stop_price,
+    t1Price: proposal.t1_price,
+    t2Price: proposal.t2_price,
+    direction: proposal.direction,
+    accountEquity: accountContext.account_equity,
+    strategyVersion: strategy ? `${strategy.name}@v${strategy.version}` : null,
+    dataAsOf: Date.now(),
+    ...portfolioCtx
+    // Market-quality inputs (spread, liquidity, halted, dilution, etc.) are
+    // intentionally NOT accepted from the client to prevent fabrication.
+    // They are populated server-side by the strategy scan path.
+  };
+
+  const evaluation = evaluateRisk(evalInput, overrides);
+
+  // Persist the reproducible evaluation.
+  let persisted = null;
+  try {
+    persisted = await persistEvaluation(proposal.id, evaluation);
+  } catch (err) {
+    logger.error('[TRADING] risk eval persist error: ' + err.message);
+  }
+
+  return res.json({
+    proposal_id: proposal.id,
+    symbol: proposal.symbol,
+    direction: proposal.direction,
+    account_equity: accountContext.account_equity,
+    evaluation,
+    persisted_id: persisted ? persisted.id : null
+  });
+}
+
+// Read the latest persisted risk evaluation for a proposal.
+async function getProposalRisk(req, res) {
+  const proposal = await proposalService.getById(req.params.id);
+  if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
+
+  const evaluation = await getLatestEvaluation(proposal.id);
+  if (!evaluation) return res.status(404).json({ error: 'No risk evaluation found' });
+
+  return res.json({
+    proposal_id: proposal.id,
+    symbol: proposal.symbol,
+    is_stale: isEvaluationStale(evaluation, proposal),
+    evaluation
+  });
+}
+
+// Return the allowed risk presets and current default.
+async function getRiskPresets(req, res) {
+  return res.json({
+    presets: RISK_PRESETS,
+    default: DEFAULT_RISK_CONFIG.riskPercent,
+    max_risk_per_trade_pct: DEFAULT_RISK_CONFIG.maxRiskPerTradePct
+  });
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -230,5 +325,8 @@ module.exports = {
   approveProposal: asyncHandler(approveProposal),
   transitionProposal: asyncHandler(transitionProposal),
   getExecutionStatus: asyncHandler(getExecutionStatus),
-  runStrategyScan: asyncHandler(runStrategyScan)
+  runStrategyScan: asyncHandler(runStrategyScan),
+  assessProposalRisk: asyncHandler(assessProposalRisk),
+  getProposalRisk: asyncHandler(getProposalRisk),
+  getRiskPresets: asyncHandler(getRiskPresets)
 };
