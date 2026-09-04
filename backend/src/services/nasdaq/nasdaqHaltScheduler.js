@@ -130,12 +130,15 @@ class NasdaqHaltScheduler extends IntervalScheduler {
   }
 }
 
-module.exports = {
-  NasdaqHaltScheduler,
-  SCHEDULER_NAME,
-  // Exported separately for tests that need to control env without instantiating
-  isSchedulerEnabled,
-  getIntervalSeconds,
-  MIN_INTERVAL_SECONDS,
-  DEFAULT_INTERVAL_SECONDS
-};
+// Singleton instance — server.js requires this and calls .start()/.stop().
+const nasdaqHaltScheduler = new NasdaqHaltScheduler();
+
+module.exports = nasdaqHaltScheduler;
+// Re-attach named exports for tests and the controller (which needs
+// isSchedulerEnabled and SCHEDULER_NAME without instantiating the scheduler).
+module.exports.NasdaqHaltScheduler = NasdaqHaltScheduler;
+module.exports.SCHEDULER_NAME = SCHEDULER_NAME;
+module.exports.isSchedulerEnabled = isSchedulerEnabled;
+module.exports.getIntervalSeconds = getIntervalSeconds;
+module.exports.MIN_INTERVAL_SECONDS = MIN_INTERVAL_SECONDS;
+module.exports.DEFAULT_INTERVAL_SECONDS = DEFAULT_INTERVAL_SECONDS;
