@@ -41,7 +41,7 @@ Active development branch:
 
 Current known HEAD when this state file was updated:
 
-- `44669310` — Add event/relationship graph: industry peers + 30-day price correlation
+- `2ec946b5` — Fix migration 261: use UUID for user_id FK
 
 The Nasdaq migration and client are now committed and pushed to this branch.
 
@@ -220,6 +220,40 @@ Scheduler:
 - Polling stops on tab hidden, resumes on visible
 - No per-browser provider connections; no per-symbol API calls
 
+## Trading Automation Foundation — Production
+
+Migration: `261_create_trading_automation_tables.sql` (additive, non-destructive)
+
+Tables:
+- `trading_strategies` — versioned strategy definitions (name + version unique)
+- `trade_signals` — signals with feature_snapshot, status lifecycle
+- `trade_proposals` — immutable snapshots (market/catalyst/technical/fundamental),
+  execution_mode (BACKTEST/PAPER/LIVE, default PAPER), lifecycle_state state machine
+- `trade_approvals` — approval decisions (approved/rejected/watch)
+- `trading_audit_events` — immutable append-only audit log
+
+Services:
+- `strategyService.js` — versioned strategy CRUD
+- `signalService.js` — signal creation with feature snapshot
+- `proposalService.js` — proposal lifecycle, state-machine transitions, edit (entry/stop/targets/risk only)
+- `auditService.js` — append-only event recording
+- `executionMode.js` — BACKTEST/PAPER/LIVE abstraction, LIVE gated behind ENABLE_LIVE_TRADING
+
+API: `/api/trading/{strategies,signals,proposals,execution-mode}` (all auth-gated)
+
+Feature flags (all default false):
+- `ENABLE_LIVE_TRADING=false`
+- `ENABLE_AUTO_EXECUTION=false`
+- `ENABLE_SMALL_CAP_MOMENTUM=false`
+
+Frontend: `/trading/proposals` — proposal list with filters, detail modal,
+APPROVE / REJECT / WATCH / EDIT actions
+
+Safety:
+- Approval does NOT submit broker orders — advisory only
+- No live execution implemented
+- No autonomous trading implemented
+
 ## Compatibility / Safety Invariants
 
 - Preserve TradeTally iOS compatibility.
@@ -265,7 +299,7 @@ Current safety defaults:
 
 ### Next milestones
 
-1. Trading Automation Foundation
+1. Trading Automation Foundation ← COMPLETED
    - versioned strategies
    - signals
    - trade proposals
