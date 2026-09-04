@@ -424,6 +424,7 @@ import { useSidebar } from '@/composables/useSidebar'
 import {
   HomeIcon,
   ChartBarSquareIcon,
+  ChartPieIcon,
   PresentationChartLineIcon,
   BeakerIcon,
   CalendarIcon,
@@ -499,6 +500,7 @@ const navItems = computed(() => {
       ]
     },
     { name: 'Trades', icon: ChartBarSquareIcon, to: '/trades', route: 'trades' },
+    { name: 'Market', icon: ChartPieIcon, to: '/market', route: 'market-overview' },
     {
       name: 'Metrics',
       icon: PresentationChartLineIcon,

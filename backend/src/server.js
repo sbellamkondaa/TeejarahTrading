@@ -67,6 +67,7 @@ const replayRoutes = require('./routes/replay.routes');
 const backtestRoutes = require('./routes/backtest.routes');
 const propFirmRoutes = require('./routes/propFirm.routes');
 const marketRiskRoutes = require('./routes/marketRisk.routes');
+const marketRoutes = require('./routes/market.routes');
 const widgetRoutes = require('./routes/widget.routes');
 const BillingService = require('./services/billingService');
 const priceMonitoringService = require('./services/priceMonitoringService');
@@ -317,6 +318,7 @@ app.use('/api/replay', replayRoutes);
 app.use('/api/backtest', backtestRoutes);
 app.use('/api/prop-firm', propFirmRoutes);
 app.use('/api/market-risk', marketRiskRoutes);
+app.use('/api/market', marketRoutes);
 app.use('/api/widgets', widgetRoutes);
 
 // OAuth2 Provider endpoints

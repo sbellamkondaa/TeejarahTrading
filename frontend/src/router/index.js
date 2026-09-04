@@ -286,6 +286,12 @@ const router = createRouter({
       component: () => import('@/views/MarketRiskView.vue')
     },
     {
+      path: '/market',
+      name: 'market-overview',
+      component: () => import('@/views/MarketOverviewView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/u/:username',
       name: 'user-profile',
       component: () => import('@/views/UserProfileView.vue')
