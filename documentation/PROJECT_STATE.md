@@ -41,7 +41,7 @@ Active development branch:
 
 Current known HEAD when this state file was updated:
 
-- `5fedf412` — Add experimental Nasdaq halt data integration
+- `44669310` — Add event/relationship graph: industry peers + 30-day price correlation
 
 The Nasdaq migration and client are now committed and pushed to this branch.
 
@@ -204,6 +204,14 @@ Scheduler:
 - /api/market/indices?extended=true returns all 6
 - Movers and Scanner index strips show all 6
 
+### Event / Relationship Graph (`/market/relationships`) — Production
+- Industry peers from Finnhub `/stock/peers` (24h cache in finnhubClient)
+- Company profile (industry, market cap, country, exchange) from Finnhub `/stock/profile2`
+- 30-day Pearson price correlation from Schwab daily candles
+- 1h Redis cache for graph structure (peers + correlations); quotes always fresh
+- Click-through peer navigation; symbol query param supported
+- GET /api/market/relationships/:symbol (auth-gated, sanitized)
+
 ### Realtime Architecture
 - No Schwab streaming/WebSocket available in codebase
 - SSE infrastructure exists for notifications (Redis pub/sub + text/event-stream)
@@ -217,7 +225,7 @@ Scheduler:
 1. Technical indicator engine ← IN PROGRESS
 2. Deterministic scanner
 3. Fundamental / catalyst engine
-4. Event / relationship graph
+4. Event / relationship graph ← COMPLETED
 5. Additional official/free data (FRED/BLS, FINRA, FDA, ClinicalTrials.gov, 13F)
 6. Empirical outcome / learning engine
 7. AI model bake-off (OpenRouter multi-model)
@@ -252,7 +260,7 @@ Scheduler:
 - Server-side technical indicator calculations (EMA, VWAP, ATR, RVOL, opening range, HOD/LOD, etc.)
 - Deterministic technical setup scanner (gap+catalyst, ORB, VWAP reclaim, momentum, etc.)
 - S-3/shelf/ATM/424B5/Form 4 detection and dilution-risk analysis
-- Event/relationship graph (sector, competitors, suppliers, ETF, correlation)
+- Event/relationship graph — peers + 30-day correlation COMPLETED; suppliers/ETF constituents remain
 - Additional data: FDA, ClinicalTrials.gov, FRED/BLS, FINRA, USAspending, Congressional disclosures, 13F tracking
 - Empirical outcome tracking (candidate snapshots, outcome measurement, setup statistics)
 - OpenRouter multi-model benchmarking framework
@@ -271,3 +279,70 @@ Scheduler:
 - Do not delete existing trading data.
 - Do not migrate the job queue to Redis without a dedicated design.
 - Do not enable live trading automation without explicit approval.
+## Active Product Direction
+
+Teejarah is evolving from market intelligence + journaling into a semi-automated trading platform.
+
+Initial production workflow:
+
+SCAN
+→ ANALYZE
+→ RISK CHECK
+→ USER APPROVAL
+→ EXECUTE
+→ MANAGE
+→ JOURNAL
+
+Current safety defaults:
+
+- ENABLE_LIVE_TRADING=false
+- ENABLE_AUTO_EXECUTION=false
+- ENABLE_SMALL_CAP_MOMENTUM=false
+- Short selling disabled
+
+### Already complete
+
+- Market Overview
+- Premarket & Movers
+- Trading Halts
+- Nasdaq scheduler
+- Technical Indicator Engine
+- Deterministic Scanner
+- Fundamental/Catalyst Engine
+- Dilution-risk checks
+- VIX / Nasdaq market context
+- Schwab market-data integration
+- Redis caching
+- bounded live polling
+
+### Next milestones
+
+1. Trading Automation Foundation
+   - versioned strategies
+   - signals
+   - trade proposals
+   - approvals
+   - immutable audit events
+   - execution-mode abstraction
+
+2. Catalyst Momentum + VWAP Reclaim strategy
+
+3. Deterministic Position Sizing + Risk Engine
+
+4. Paper Broker
+
+5. Order / Position State Machine
+
+6. Journal + reconciliation integration
+
+7. Backtesting / empirical probabilities
+
+8. Schwab live execution behind feature flag + explicit approval
+
+9. Automated T1/T2/stop management
+
+10. Live Trading Workstation integration
+
+11. AI model bake-off and advisory layer
+
+12. Optional individually-approved automation strategies
