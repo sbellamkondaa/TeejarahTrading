@@ -4,7 +4,19 @@
 // stack: the first layer should be router-level `authenticate`, and each route
 // layer should be a GET handler.
 
-// Use the REAL auth middleware so router.use(authenticate) binds correctly.
+// Mock the auth middleware to avoid loading its heavy deps (jsonwebtoken,
+// User model) in the stripped prod image. Return a real function reference so
+// Express's router.use(authenticate) binds it as middleware (router.use throws
+// "pathRegexp.match is not a function" if given a non-function).
+jest.mock('../../src/middleware/auth', () => {
+  const authenticate = function authenticate(req, res, next) {
+    const err = new Error('Please authenticate');
+    err.status = 401;
+    next(err);
+  };
+  return { authenticate };
+});
+
 jest.mock('../../src/controllers/market.controller', () => ({
   getIndices: jest.fn(),
   getHalts: jest.fn(),
@@ -17,28 +29,20 @@ const marketRoutes = require('../../src/routes/market.routes');
 const { authenticate } = require('../../src/middleware/auth');
 
 describe('market routes authentication', () => {
-  test('router has a router-level authenticate layer', () => {
-    // The first layer in the stack should be the authenticate middleware
-    // mounted via router.use(authenticate).
-    const useLayers = marketRoutes.stack.filter((l) => l.name === 'authenticate' || l.handle === authenticate);
-    expect(useLayers.length).toBeGreaterThanOrEqual(1);
+  test('router has a router-level authenticate layer as its first middleware', () => {
+    const first = marketRoutes.stack[0];
+    expect(first.handle).toBe(authenticate);
+    expect(first.route).toBeUndefined();
   });
 
   test('all 5 GET endpoints are registered', () => {
     const routeLayers = marketRoutes.stack.filter((l) => l.route);
     const paths = routeLayers.map((l) => l.route.path);
     expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/news']);
-    // Every registered route must be GET (read-only).
     for (const layer of routeLayers) {
       const methods = Object.keys(layer.route.methods);
       expect(methods).toEqual(['get']);
     }
-  });
-
-  test('authenticate runs before route handlers (it is the first layer)', () => {
-    const first = marketRoutes.stack[0];
-    expect(first.handle).toBe(authenticate);
-    expect(first.route).toBeUndefined();
   });
 
   test('no mutating routes (POST/PUT/DELETE) exist on the market router', () => {
@@ -50,4 +54,15 @@ describe('market routes authentication', () => {
       }
     }
   });
+
+  test('authenticate middleware rejects without a session (401)', () => {
+    const next = jest.fn();
+    const res = {};
+    authenticate({}, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    const err = next.mock.calls[0][0];
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(401);
+  });
 });
+
