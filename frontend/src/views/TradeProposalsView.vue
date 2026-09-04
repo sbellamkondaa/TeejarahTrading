@@ -39,6 +39,16 @@
       >
         {{ loading ? 'Loading…' : 'Refresh' }}
       </button>
+      <button
+        @click="runScan"
+        :disabled="scanning"
+        class="px-4 py-2 rounded-lg text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+      >
+        {{ scanning ? 'Scanning…' : 'Run Scan' }}
+      </button>
+      <span v-if="scanResult" class="text-xs text-gray-500 dark:text-gray-400">
+        {{ scanResult }}
+      </span>
     </div>
 
     <!-- Loading -->
@@ -271,6 +281,9 @@ const error = ref(null)
 const selectedProposal = ref(null)
 const actionLoading = ref(false)
 const editing = ref(false)
+const scanning = ref(false)
+const scanResult = ref('')
+const activeStrategies = ref([])
 const editForm = reactive({})
 
 const filters = reactive({
@@ -303,7 +316,34 @@ const lifecycleStates = [
 
 onMounted(() => {
   fetchProposals()
+  fetchStrategies()
 })
+
+async function fetchStrategies() {
+  try {
+    const { data } = await api.get('/trading/strategies', { params: { status: 'active' } })
+    activeStrategies.value = data.strategies || []
+  } catch {
+    activeStrategies.value = []
+  }
+}
+
+async function runScan() {
+  if (!activeStrategies.value.length) return
+  scanning.value = true
+  scanResult.value = ''
+  try {
+    // Run scan for the first active strategy (catalyst_momentum_vwap_reclaim)
+    const strategy = activeStrategies.value[0]
+    const { data } = await api.post(`/trading/strategies/${strategy.id}/scan`)
+    scanResult.value = `${data.signals_created} signals, ${data.proposals_created} proposals`
+    await fetchProposals()
+  } catch (err) {
+    scanResult.value = err?.response?.data?.error || 'Scan failed'
+  } finally {
+    scanning.value = false
+  }
+}
 
 async function fetchProposals() {
   loading.value = true

@@ -14,6 +14,7 @@ router.post('/strategies', tradingController.createStrategy);
 router.get('/strategies/:id', tradingController.getStrategy);
 router.post('/strategies/:name/versions', tradingController.createStrategyVersion);
 router.patch('/strategies/:id/status', tradingController.updateStrategyStatus);
+router.post('/strategies/:id/scan', tradingController.runStrategyScan);
 
 // Signals
 router.get('/signals', tradingController.listSignals);

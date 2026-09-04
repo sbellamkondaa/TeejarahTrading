@@ -17,6 +17,7 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   createStrategy: jest.fn(),
   createStrategyVersion: jest.fn(),
   updateStrategyStatus: jest.fn(),
+  runStrategyScan: jest.fn(),
   listSignals: jest.fn(),
   getSignal: jest.fn(),
   listProposals: jest.fn(),
@@ -70,6 +71,7 @@ describe('trading.routes wiring', () => {
       '/proposals/:id/approval',
       '/proposals/:id/transition',
       '/strategies',
+      '/strategies/:id/scan',
       '/strategies/:name/versions'
     ]);
   });

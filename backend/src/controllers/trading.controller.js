@@ -5,6 +5,7 @@ const signalService = require('../services/trading/signalService');
 const proposalService = require('../services/trading/proposalService');
 const auditService = require('../services/trading/auditService');
 const executionMode = require('../services/trading/executionMode');
+const { runScan: runCatalystMomentumScan, STRATEGY_NAME: CATALYST_STRATEGY_NAME } = require('../services/trading/catalystMomentumStrategy');
 
 // --- Execution mode ---
 
@@ -182,6 +183,38 @@ async function transitionProposal(req, res) {
   }
 }
 
+// --- Strategy scan ---
+
+async function runStrategyScan(req, res) {
+  const strategy = await strategyService.getById(req.params.id);
+  if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
+  if (strategy.status !== 'active') {
+    return res.status(409).json({ error: 'Strategy must be active to scan' });
+  }
+
+  try {
+    let result;
+    if (strategy.name === CATALYST_STRATEGY_NAME) {
+      result = await runCatalystMomentumScan(strategy.id, strategy.config);
+    } else {
+      return res.status(400).json({ error: `Strategy "${strategy.name}" has no scan engine` });
+    }
+
+    return res.json({
+      strategy_id: strategy.id,
+      strategy_name: strategy.name,
+      strategy_version: strategy.version,
+      signals_created: result.signals.length,
+      proposals_created: result.proposals.length,
+      proposals: result.proposals,
+      error: result.error || null
+    });
+  } catch (err) {
+    logger.error('[TRADING] scan error: ' + err.message);
+    return res.status(500).json({ error: 'Strategy scan failed' });
+  }
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -196,5 +229,6 @@ module.exports = {
   editProposal: asyncHandler(editProposal),
   approveProposal: asyncHandler(approveProposal),
   transitionProposal: asyncHandler(transitionProposal),
-  getExecutionStatus: asyncHandler(getExecutionStatus)
+  getExecutionStatus: asyncHandler(getExecutionStatus),
+  runStrategyScan: asyncHandler(runStrategyScan)
 };
