@@ -70,9 +70,11 @@ describe('nasdaqHaltScheduler', () => {
 
   describe('NasdaqHaltScheduler instance', () => {
     test('constructor wires IntervalScheduler with useRunningGuard and useUnref', () => {
-      NasdaqHaltScheduler; // ensure module loads
+      // Construct a fresh instance to exercise the IntervalScheduler wiring.
+      // eslint-disable-next-line no-new
+      new NasdaqHaltScheduler();
       expect(IntervalScheduler).toHaveBeenCalled();
-      const opts = IntervalScheduler.mock.calls[0][0];
+      const opts = IntervalScheduler.mock.calls[IntervalScheduler.mock.calls.length - 1][0];
       expect(opts.useRunningGuard).toBe(true);
       expect(opts.useUnref).toBe(true);
       expect(opts.intervalMs).toBe(60000);

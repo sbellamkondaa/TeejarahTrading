@@ -43,8 +43,8 @@
       "sudo rm *": "deny",
       "/usr/local/bin/teejarah-remote-status": "allow",
       "/usr/local/bin/teejarah-remote-logs *": "allow",
-      "/usr/local/bin/teejarah-remote-sync": "ask",
-      "/usr/local/bin/teejarah-remote-build": "ask",
+      "/usr/local/bin/teejarah-remote-sync": "allow",
+      "/usr/local/bin/teejarah-remote-build": "allow",
       "/usr/local/bin/teejarah-remote-deploy": "ask",
       "/usr/local/bin/teejarah-nasdaq-check *": "allow"
     }

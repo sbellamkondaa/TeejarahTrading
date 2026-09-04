@@ -169,7 +169,8 @@ describe('market.controller', () => {
       const res = mockRes();
       await controller.getHalts({ query: { status: 'bogus' } }, res);
       const [sql, params] = db.query.mock.calls[0];
-      expect(sql).not.toContain('is_resumption');
+      // is_resumption appears only as a selected column, never in a WHERE condition.
+      expect(sql).not.toContain('is_resumption =');
       expect(params[0]).toBe(10);
     });
 
