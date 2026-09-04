@@ -41,7 +41,7 @@ Active development branch:
 
 Current known HEAD when this state file was updated:
 
-- `2ec946b5` — Fix migration 261: use UUID for user_id FK
+- `92cae75f` — Add Catalyst Momentum + VWAP Reclaim strategy engine
 
 The Nasdaq migration and client are now committed and pushed to this branch.
 
@@ -254,6 +254,28 @@ Safety:
 - No live execution implemented
 - No autonomous trading implemented
 
+## Catalyst Momentum + VWAP Reclaim Strategy — Production
+
+Migration: `262_seed_catalyst_momentum_strategy.sql` (idempotent insert)
+
+Strategy: `catalyst_momentum_vwap_reclaim` v1, status active
+
+Engine: `backend/src/services/trading/catalystMomentumStrategy.js`
+- Scans Schwab movers ($COMPX, $DJI, $SPX) for VWAP reclaim setups
+- 5-minute primary timeframe, daily context
+- Filters: gap >= 3%, RVOL >= 2 (when available), catalyst strength >= 30,
+  VWAP distance 0.1–5%, spread <= 0.5%, liquidity (rejects very_low),
+  price >= $5, ADV >= 1M, OTC excluded
+- Penny-stock/dilution policy: dilution warnings from dilutionRiskEngine
+- Two entry modes: reclaim_breakout (entry above reclaim candle high),
+  vwap_retest_hold (price near VWAP)
+- ATR-based stops, R:R-anchored T1 (2R) / T2 (4R) / runner (8R) targets
+- Immutable snapshots: feature, market, catalyst, technical, fundamental evidence
+- Advisory only — creates PAPER proposals snapshots, no broker execution
+
+API: `POST /api/trading/strategies/:id/scan` (auth-gated)
+Frontend: Run Scan button on `/trading/proposals`
+
 ## Compatibility / Safety Invariants
 
 - Preserve TradeTally iOS compatibility.
@@ -307,7 +329,14 @@ Current safety defaults:
    - immutable audit events
    - execution-mode abstraction
 
-2. Catalyst Momentum + VWAP Reclaim strategy
+2. Catalyst Momentum + VWAP Reclaim strategy ← COMPLETED
+   - versioned strategy seeded (migration 262)
+   - VWAP reclaim + catalyst validation
+   - gap/RVOL/liquidity/spread filters
+   - two entry modes (reclaim breakout, retest/hold)
+   - ATR stops, R:R targets
+   - immutable proposal snapshots
+   - advisory only (PAPER)
 
 3. Deterministic Position Sizing + Risk Engine
 
