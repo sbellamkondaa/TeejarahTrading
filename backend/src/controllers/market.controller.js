@@ -294,10 +294,8 @@ async function getFilings(req, res) {
 // coverage; $DJI and $SPX supplement. We fetch all three and merge, deduping by
 // symbol, so the user sees the widest set of movers.
 const MOVER_INDEXES = ['$COMPX', '$DJI', '$SPX'];
-const MOVER_CACHE_TTL_MS = 60 * 1000; // 60-second Redis cache
 const MOVER_MAX_LIMIT = 100;
 const MOVER_DEFAULT_LIMIT = 25;
-const MOVER_INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
 function parseFloatParam(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -564,8 +562,8 @@ async function getMovers(req, res) {
   // Fetch index quotes for market context (reuse existing infrastructure)
   let indices = null;
   try {
-    const indexQuotes = await finnhub.getQuotes(MOVER_INDEX_SYMBOLS);
-    indices = MOVER_INDEX_SYMBOLS.map((sym) => {
+    const indexQuotes = await finnhub.getQuotes(INDEX_SYMBOLS);
+    indices = INDEX_SYMBOLS.map((sym) => {
       const q = indexQuotes[sym];
       if (!q || q.c == null) return { symbol: sym, available: false };
       return {
