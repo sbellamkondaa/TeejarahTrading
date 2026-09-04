@@ -329,20 +329,28 @@ const STRONG_CATALYST_TYPES = new Set(['earnings', 'halt', 'halt_resumed']);
 
 /**
  * Check if a candidate has dilution risk from SEC filings.
+ * Handles both the new catalyst-engine types (offering_financing) and the
+ * legacy catalyst shape (sec_filing with dilution form label).
  * @param {object} candidate
  * @returns {{ has_dilution_risk: boolean, filings: string[] }|null}
  */
 function checkDilutionRisk(candidate) {
   const catalysts = candidate.catalysts || [];
-  const dilutionFilings = catalysts.filter(c =>
-    c.type === 'sec_filing' && DILUTION_FORM_TYPES.has(c.label)
-  );
+  const dilutionFilings = [];
+
+  for (const c of catalysts) {
+    if (c.type === 'offering_financing' && DILUTION_FORM_TYPES.has(c.label)) {
+      dilutionFilings.push(c.label);
+    } else if (c.type === 'sec_filing' && DILUTION_FORM_TYPES.has(c.label)) {
+      dilutionFilings.push(c.label);
+    }
+  }
 
   if (dilutionFilings.length === 0) return null;
 
   return {
     has_dilution_risk: true,
-    filings: dilutionFilings.map(f => f.label)
+    filings: dilutionFilings
   };
 }
 

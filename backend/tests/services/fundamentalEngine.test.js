@@ -174,7 +174,9 @@ describe('fundamentalEngine', () => {
 
       const results = await buildFundamentalProfiles(['GOOD', 'BAD']);
       expect(results.GOOD).not.toBeNull();
-      expect(results.BAD).toBeNull();
+      expect(results.GOOD.eps_ttm.value).toBe(1);
+      // Failed symbol gets an unavailable profile (not null) — no fabricated data
+      expect(results.BAD._meta.unavailable).toContain('all');
     });
 
     test('empty input returns empty map', async () => {
