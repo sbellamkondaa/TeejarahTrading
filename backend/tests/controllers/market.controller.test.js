@@ -115,10 +115,10 @@ describe('market.controller', () => {
       const res = mockRes();
       await controller.getNews({ query: { limit: '15' } }, res);
       expect(res.body.news).toHaveLength(3);
-      // newest first (datetime desc)
+      // newest first (datetime desc): 3 -> 2 -> sharedId(1)
       expect(res.body.news[0].id).toBe(3);
-      expect(res.body.news[1].id).toBe(sharedId);
-      expect(res.body.news[2].id).toBe(2);
+      expect(res.body.news[1].id).toBe(2);
+      expect(res.body.news[2].id).toBe(sharedId);
     });
 
     test('tolerates provider error for one symbol', async () => {
