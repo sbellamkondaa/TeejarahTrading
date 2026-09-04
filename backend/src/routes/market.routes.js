@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-console.error('ROUTES: typeof authenticate =', typeof authenticate);
 const marketController = require('../controllers/market.controller');
 
 router.use(authenticate);

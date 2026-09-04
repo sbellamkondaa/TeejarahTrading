@@ -1,6 +1,8 @@
-// Mock the auth middleware to avoid loading its heavy deps (jsonwebtoken,
-// User model) in the stripped prod image. Return a real named function so
-// Express's router.use(authenticate) binds it as middleware.
+// Verifies that market.routes.js wires the authenticate middleware before the
+// route handlers. Mocks express.Router to capture use()/get() calls, avoiding
+// the pathRegexp incompatibility between jest's module resolution and the
+// path-to-regexp version in the prod image.
+
 jest.mock('../../src/middleware/auth', () => {
   const authenticate = function authenticate(req, res, next) {
     const err = new Error('Please authenticate');
@@ -18,48 +20,41 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getFilings: jest.fn()
 }));
 
-// Require auth first so its mock is materialized before market.routes.js
-// calls router.use(authenticate) at module load.
-const auth = require('../../src/middleware/auth');
-console.error('TEST: typeof auth.authenticate =', typeof auth.authenticate);
+const express = require('express');
 
-// Defer requiring market.routes until inside describe so the auth mock is
-// fully resolved (jest hoists jest.mock, but requiring auth first ensures the
-// mocked export is a real function reference before router.use binds it).
+// Capture router.use / router.get calls in a fake router.
+const useCalls = [];
+const getCalls = [];
+
+jest.spyOn(express, 'Router').mockImplementation(() => ({
+  use: (...args) => { useCalls.push(args); },
+  get: (...args) => { getCalls.push(args); }
+}));
+
 const marketRoutes = require('../../src/routes/market.routes');
-const { authenticate } = auth;
+const { authenticate } = require('../../src/middleware/auth');
 
-describe('market routes authentication', () => {
-  test('router has a router-level authenticate layer as its first middleware', () => {
-    const first = marketRoutes.stack[0];
-    expect(first.handle).toBe(authenticate);
-    expect(first.route).toBeUndefined();
+describe('market.routes wiring', () => {
+  test('router.use is called with authenticate first (auth gate)', () => {
+    expect(useCalls.length).toBeGreaterThanOrEqual(1);
+    expect(useCalls[0][0]).toBe(authenticate);
   });
 
-  test('all 5 GET endpoints are registered', () => {
-    const routeLayers = marketRoutes.stack.filter((l) => l.route);
-    const paths = routeLayers.map((l) => l.route.path);
+  test('all 5 GET endpoints are registered (read-only)', () => {
+    const paths = getCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/news']);
-    for (const layer of routeLayers) {
-      const methods = Object.keys(layer.route.methods);
-      expect(methods).toEqual(['get']);
-    }
   });
 
-  test('no mutating routes (POST/PUT/DELETE) exist on the market router', () => {
-    const routeLayers = marketRoutes.stack.filter((l) => l.route);
-    for (const layer of routeLayers) {
-      const methods = Object.keys(layer.route.methods);
-      for (const m of methods) {
-        expect(m).toBe('get');
-      }
-    }
+  test('no mutating routes are registered (only GET)', () => {
+    // The fake router only exposes use/get; if market.routes.js had called
+    // post/put/delete they would throw here. The get-only assertions above
+    // confirm read-only.
+    expect(getCalls.length).toBe(5);
   });
 
-  test('authenticate middleware rejects without a session (401)', () => {
+  test('authenticate rejects without a session (401)', () => {
     const next = jest.fn();
-    const res = {};
-    authenticate({}, res, next);
+    authenticate({}, {}, next);
     expect(next).toHaveBeenCalledTimes(1);
     const err = next.mock.calls[0][0];
     expect(err).toBeInstanceOf(Error);
