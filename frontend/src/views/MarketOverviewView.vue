@@ -418,7 +418,7 @@ onMounted(() => {
   @apply px-3 py-2.5 text-gray-700 dark:text-gray-300 whitespace-nowrap;
 }
 .state-card {
-  @apply card px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400;
+  @apply bg-white dark:bg-gray-800 shadow rounded-lg px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400;
 }
 .text-error {
   @apply text-red-600 dark:text-red-400;
