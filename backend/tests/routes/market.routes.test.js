@@ -28,6 +28,16 @@ jest.mock('../../src/controllers/market.controller', () => ({
 const marketRoutes = require('../../src/routes/market.routes');
 const { authenticate } = require('../../src/middleware/auth');
 
+test('DEBUG', () => {
+  console.log('typeof authenticate:', typeof authenticate);
+  console.log('authenticate:', authenticate);
+  const express = require('express');
+  const r = express.Router();
+  r.use(authenticate);
+  console.log('stack:', r.stack.length);
+  expect(true).toBe(true);
+});
+
 describe('market routes authentication', () => {
   test('router has a router-level authenticate layer as its first middleware', () => {
     const first = marketRoutes.stack[0];
