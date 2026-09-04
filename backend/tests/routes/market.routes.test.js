@@ -25,16 +25,18 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getFilings: jest.fn()
 }));
 
-const marketRoutes = require('../../src/routes/market.routes');
 const { authenticate } = require('../../src/middleware/auth');
 
-test('DEBUG', () => {
+test('DEBUG: check authenticate type before requiring routes', () => {
   console.log('typeof authenticate:', typeof authenticate);
-  console.log('authenticate:', authenticate);
-  const express = require('express');
-  const r = express.Router();
-  r.use(authenticate);
-  console.log('stack:', r.stack.length);
+  console.log('authenticate.toString():', String(authenticate).slice(0, 100));
+  // Now require routes — this calls router.use(authenticate) internally.
+  let routes;
+  try {
+    routes = require('../../src/routes/market.routes');
+  } catch (e) {
+    console.log('require routes threw:', e.message);
+  }
   expect(true).toBe(true);
 });
 
