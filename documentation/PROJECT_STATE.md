@@ -757,6 +757,33 @@ Current safety defaults:
         stale/error states, no execution bypass, advisory evidence rendering).
       - fast-review: no material findings.
 
+  7d. PAPER Workstation Hardening + Trading Validation ← COMPLETED
+      - Migration 269: paper_account table (cash ledger) + paper_account_ledger
+        with unique indexes preventing double reservation/release at DB level.
+      - paperAccountService.js: persistent PAPER cash ledger with atomic
+        reservation/release (SELECT FOR UPDATE), buying-power check,
+        halt/unhalt, realized P&L, equity/market-value/unrealized computation.
+        Starting cash $100k, no margin.
+      - paperBroker.js: halt check before entry (blocks new entries, existing
+        positions remain manageable), buying-power reservation on fill (with
+        rollback on insufficient funds), release on close/manual close.
+        Fix: partial-fill positions use actual filled qty (not order qty).
+      - Backend /market/candles: computes VWAP, EMA9, EMA20 using same backend
+        indicator functions as the strategy (calculateSessionVWAP, calculateEMA).
+        Returns per-candle indicator series for chart overlays.
+      - API: POST /paper-account/halt, POST /paper-account/unhalt.
+      - Frontend: AbortController for rapid symbol switching (prevents stale
+        responses), VWAP/EMA overlays on chart (indigo VWAP, amber EMA9,
+        violet EMA20), STOP NEW PAPER / RESUME PAPER control in market strip,
+        paper account equity/buying-power display, halt warning in execution
+        panel (blocks new entry button when halted).
+      - Tests: 13 paperAccountService tests (reservation, insufficient BP,
+        duplicate prevention, release, double release, halt/unhalt, P&L,
+        equity computation), 23 workstation tests (halt control, abort
+        controller, VWAP/EMA ref, stale protection).
+      - fast-review: fixed missing unique indexes (DB-level double-reservation
+        prevention), fixed partial-fill position qty bug.
+
   8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management
