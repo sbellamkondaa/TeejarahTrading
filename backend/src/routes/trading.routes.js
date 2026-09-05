@@ -50,4 +50,8 @@ router.post('/paper-reconciliation/run', tradingController.triggerPaperReconcili
 router.get('/proposals/:id/journal-trade', tradingController.getJournalTrade);
 router.post('/proposals/:id/journal-sync', tradingController.syncJournal);
 
+// Setup stats (empirical win rates from observed trade data)
+router.get('/setup-stats', tradingController.getSetupStats);
+router.get('/setup-stats/:setupType', tradingController.getSetupStatsByType);
+
 module.exports = router;

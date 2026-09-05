@@ -10,6 +10,7 @@ const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluat
 const paperBroker = require('../services/trading/paperBroker');
 const paperReconciliationScheduler = require('../services/trading/paperReconciliationScheduler');
 const journalSync = require('../services/trading/journalSyncService');
+const setupStatsService = require('../services/trading/setupStatsService');
 
 // --- Execution mode ---
 
@@ -485,6 +486,22 @@ async function syncJournal(req, res) {
   }
 }
 
+// --- Setup stats (empirical win rates) ---
+
+async function getSetupStats(req, res) {
+  const stats = await setupStatsService.getSetupStats(req.user.id);
+  return res.json({ stats });
+}
+
+async function getSetupStatsByType(req, res) {
+  const setupType = req.params.setupType;
+  if (!setupType || !/^[a-z0-9_-]+$/i.test(setupType)) {
+    return res.status(400).json({ error: 'Invalid setup type' });
+  }
+  const stats = await setupStatsService.getStatsForSetupType(req.user.id, setupType);
+  return res.json(stats);
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -518,5 +535,7 @@ module.exports = {
   getPaperReconciliationStatus: asyncHandler(getPaperReconciliationStatus),
   triggerPaperReconciliation: asyncHandler(triggerPaperReconciliation),
   getJournalTrade: asyncHandler(getJournalTrade),
-  syncJournal: asyncHandler(syncJournal)
+  syncJournal: asyncHandler(syncJournal),
+  getSetupStats: asyncHandler(getSetupStats),
+  getSetupStatsByType: asyncHandler(getSetupStatsByType)
 };

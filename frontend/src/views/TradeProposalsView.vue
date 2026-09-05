@@ -196,6 +196,32 @@
           </ul>
         </div>
 
+        <!-- Historical / empirical win rate -->
+        <div v-if="selectedProposal.historical_stats && selectedProposal.historical_stats.sample_size > 0" class="mt-4">
+          <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Historical Estimate</div>
+          <div v-if="selectedProposal.historical_stats.sufficient" class="text-sm text-gray-700 dark:text-gray-300 flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              Win rate
+              <span class="font-semibold text-mono-num">{{ selectedProposal.historical_stats.win_rate }}%</span>
+            </span>
+            <span>Sample <span class="text-mono-num">{{ selectedProposal.historical_stats.sample_size }}</span></span>
+            <span v-if="selectedProposal.historical_stats.date_from">
+              {{ selectedProposal.historical_stats.date_from }}–{{ selectedProposal.historical_stats.date_to }}
+            </span>
+            <span>Avg P&L ${{ formatPrice(selectedProposal.historical_stats.avg_pnl) }}</span>
+          </div>
+          <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+            Insufficient comparable trades ({{ selectedProposal.historical_stats.sample_size }} sample{{ selectedProposal.historical_stats.sample_size === 1 ? '' : 's' }})
+          </div>
+        </div>
+        <div
+          v-else-if="selectedProposal.historical_stats && !selectedProposal.historical_stats.sufficient"
+          class="mt-4"
+        >
+          <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Historical Estimate</div>
+          <div class="text-sm text-gray-500 dark:text-gray-400">Insufficient comparable trades</div>
+        </div>
+
         <!-- Risk evaluation -->
         <div v-if="riskEvaluation" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
           <div class="flex items-center justify-between mb-2">

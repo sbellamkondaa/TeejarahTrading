@@ -40,7 +40,11 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   listPaperOrders: jest.fn(),
   getPaperAccount: jest.fn(),
   getPaperReconciliationStatus: jest.fn(),
-  triggerPaperReconciliation: jest.fn()
+  triggerPaperReconciliation: jest.fn(),
+  getJournalTrade: jest.fn(),
+  syncJournal: jest.fn(),
+  getSetupStats: jest.fn(),
+  getSetupStatsByType: jest.fn()
 }));
 
 const express = require('express');
@@ -82,6 +86,8 @@ describe('trading.routes wiring', () => {
       '/proposals/:id/paper-reconcile',
       '/proposals/:id/risk-evaluation',
       '/risk-presets',
+      '/setup-stats',
+      '/setup-stats/:setupType',
       '/signals',
       '/signals/:id',
       '/strategies',

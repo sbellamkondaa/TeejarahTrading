@@ -32,6 +32,7 @@ const { buildFundamentalProfiles } = require('../fundamentalEngine');
 const signalService = require('./signalService');
 const proposalService = require('./proposalService');
 const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, DEFAULT_RISK_CONFIG } = require('./riskEngine');
+const { getStatsForSetupType } = require('./setupStatsService');
 
 const STRATEGY_NAME = 'catalyst_momentum_vwap_reclaim';
 
@@ -397,6 +398,14 @@ async function runScan(strategyId, config, userId) {
           warnings.push({ type: 'risk_warnings', items: riskEval.warnings });
         }
 
+        // ── Empirical win rate from observed trade data ──
+        let historicalStats = {};
+        try {
+          historicalStats = await getStatsForSetupType(userId, 'vwap_reclaim_with_catalyst');
+        } catch (err) {
+          logger.warn(`[CATALYST-VWAP] Setup stats lookup failed for ${sym}: ${err.message}`);
+        }
+
         // ── Create proposal ──
         // Risk-rejected proposals are still created in SIGNAL_DETECTED state
         // (advisory) — they do NOT auto-promote to READY_FOR_APPROVAL.
@@ -420,7 +429,7 @@ async function runScan(strategyId, config, userId) {
           technicalEvidence,
           fundamentalEvidence,
           warnings,
-          historicalStats: {}, // Never fabricate — populated when backtest data exists
+          historicalStats,
           dataSources,
           riskState: riskEval.state,
           riskRejected
