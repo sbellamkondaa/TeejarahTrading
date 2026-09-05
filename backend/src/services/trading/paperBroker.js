@@ -46,6 +46,7 @@ const db = require('../../config/database');
 const finnhub = require('../../utils/finnhub');
 const proposalService = require('./proposalService');
 const auditService = require('./auditService');
+const journalSync = require('./journalSyncService');
 const { isEvaluationStale, getLatestEvaluation, canBecomeReadyForApproval } = require('./riskEngine');
 const {
   assertOrderTransition,
@@ -396,6 +397,9 @@ async function submitEntry(proposalId, userId, options = {}) {
       symbol: proposal.symbol, quantity: fill.fillQty, fill_price: fillPrice,
       position_id: position.id, order_id: order.id, user_id: userId
     });
+
+    // Sync to journal trade (idempotent — creates or updates trade from position state)
+    try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] entry fill:', e.message); }
   } else {
     // Non-marketable: order stays SUBMITTED, position not created yet
     await auditService.recordEvent('paper_entry_submitted', 'trade_proposal', proposalId, {
@@ -663,6 +667,9 @@ async function executeSellFill(position, order, fill, proposal, userId) {
     await proposalService.transitionState(position.proposal_id, 'POSITION_CLOSED', userId);
   }
 
+  // Sync to journal trade (idempotent — updates exit fields from position state)
+  try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] sell fill:', e.message); }
+
   return {
     order_id: order.id,
     order_type: order.order_type,
@@ -899,6 +906,9 @@ async function manualClose(proposalId, userId) {
     order_id: closeOrder.rows[0].id, quantity: qty, fill_price: fillPrice,
     realized_pnl: pnl, user_id: userId
   });
+
+  // Sync to journal trade (idempotent — final close updates is_completed + pnl)
+  try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] manual close:', e.message); }
 
   return {
     order: closeOrder.rows[0],
@@ -1156,6 +1166,8 @@ async function reconcileAll(userId = null) {
           remaining_qty: inv.remainingQty
         });
       }
+      // Sync position to journal trade after fill processing (idempotent)
+      try { await journalSync.syncPositionToJournal(row.id, userId); } catch (e) { errors.push({ position_id: row.id, error: 'journal sync: ' + e.message }); }
     } catch (err) {
       errors.push({ proposal_id: row.proposal_id, error: err.message });
     }
@@ -1341,12 +1353,24 @@ async function runRestartRecovery(userId = null) {
 async function runReconciliationCycle(userId = null) {
   const recovery = await runRestartRecovery(userId);
   const fillResult = await reconcileAll(userId);
+
+  // Sync all paper positions to journal trades (idempotent — safe to replay)
+  let journalSynced = 0;
+  let journalErrors = [];
+  try {
+    const syncResult = await journalSync.syncAllToJournal(userId);
+    journalSynced = syncResult.synced;
+    journalErrors = syncResult.errors;
+  } catch (e) { journalErrors = [{ error: e.message }]; }
+
   return {
     repairs: recovery.repairs.length,
     manualInterventions: recovery.manualInterventions.length,
     positionsProcessed: fillResult.positionsProcessed,
     fillsApplied: fillResult.fillsApplied,
     errors: fillResult.errors,
+    journalSynced,
+    journalErrors,
     recoveryDetails: recovery
   };
 }

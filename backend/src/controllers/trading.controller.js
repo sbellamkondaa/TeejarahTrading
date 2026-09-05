@@ -9,6 +9,7 @@ const { runScan: runCatalystMomentumScan, STRATEGY_NAME: CATALYST_STRATEGY_NAME 
 const { evaluateRisk, getAccountContext, getPortfolioRiskContext, persistEvaluation, getLatestEvaluation, isEvaluationStale, DEFAULT_RISK_CONFIG, RISK_PRESETS } = require('../services/trading/riskEngine');
 const paperBroker = require('../services/trading/paperBroker');
 const paperReconciliationScheduler = require('../services/trading/paperReconciliationScheduler');
+const journalSync = require('../services/trading/journalSyncService');
 
 // --- Execution mode ---
 
@@ -464,6 +465,26 @@ async function triggerPaperReconciliation(req, res) {
   }
 }
 
+// --- Journal sync ---
+
+async function getJournalTrade(req, res) {
+  const trade = await journalSync.getJournalTradeByProposal(req.params.id);
+  if (!trade) return res.status(404).json({ error: 'No journal trade for this proposal' });
+  return res.json({ trade });
+}
+
+async function syncJournal(req, res) {
+  try {
+    const position = await paperBroker.getPosition(req.params.id);
+    if (!position) return res.status(404).json({ error: 'No paper position for this proposal' });
+    const trade = await journalSync.syncPositionToJournal(position.id, req.user.id);
+    return res.json({ trade });
+  } catch (err) {
+    logger.error('[TRADING] journal sync error: ' + err.message);
+    return res.status(500).json({ error: 'Journal sync failed' });
+  }
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -495,5 +516,7 @@ module.exports = {
   listPaperOrders: asyncHandler(listPaperOrders),
   getPaperAccount: asyncHandler(getPaperAccount),
   getPaperReconciliationStatus: asyncHandler(getPaperReconciliationStatus),
-  triggerPaperReconciliation: asyncHandler(triggerPaperReconciliation)
+  triggerPaperReconciliation: asyncHandler(triggerPaperReconciliation),
+  getJournalTrade: asyncHandler(getJournalTrade),
+  syncJournal: asyncHandler(syncJournal)
 };

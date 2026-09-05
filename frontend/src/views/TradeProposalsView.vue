@@ -479,6 +479,21 @@
               class="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 disabled:opacity-50"
             >Update Stop</button>
           </div>
+
+          <!-- Journal trade link -->
+          <div v-if="journalTrade" class="mt-3 flex items-center gap-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Journal Trade:</span>
+            <router-link
+              :to="`/trades/${journalTrade.id}`"
+              class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50"
+            >
+              {{ journalTrade.symbol }} ·
+              <span :class="Number(journalTrade.pnl) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                {{ formatPrice(journalTrade.pnl) }}
+              </span>
+              <span v-if="journalTrade.is_completed" class="ml-1 text-gray-400">(closed)</span>
+            </router-link>
+          </div>
         </div>
       </div>
     </div>
@@ -506,6 +521,7 @@ const riskPresets = ref([0.25, 0.5, 1.0])
 const selectedPreset = ref(1.0)
 const paperPosition = ref(null)
 const paperOrders = ref(null)
+const journalTrade = ref(null)
 const unrealizedPnl = ref(null)
 const stopUpdateForm = reactive({ stopPrice: null })
 const reconcileLoading = ref(false)
@@ -758,6 +774,7 @@ async function fetchPaperPosition(id) {
   paperPosition.value = null
   paperOrders.value = null
   unrealizedPnl.value = null
+  journalTrade.value = null
   try {
     const { data } = await api.get(`/trading/proposals/${id}/paper-position`)
     paperPosition.value = data.position
@@ -765,6 +782,15 @@ async function fetchPaperPosition(id) {
     unrealizedPnl.value = data.unrealized_pnl ?? null
   } catch {
     // no position yet
+  }
+  // Fetch journal trade if it exists
+  if (paperPosition.value) {
+    try {
+      const { data: jt } = await api.get(`/trading/proposals/${id}/journal-trade`)
+      journalTrade.value = jt.trade
+    } catch {
+      // no journal trade yet
+    }
   }
 }
 

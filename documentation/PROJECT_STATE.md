@@ -620,6 +620,33 @@ Current safety defaults:
     - Route test updated for new endpoint
     - All existing diary + trading tests pass; frontend build succeeds
 
+ 6b. Journal + Execution Event Integration ← COMPLETED
+    - Migration 267: `paper_position_id UUID` + `execution_mode VARCHAR(10)`
+      added to `trades` table (additive, non-destructive). Unique partial index
+      on `paper_position_id` ensures at most one trade per paper position.
+    - `journalSyncService.js`: projects PAPER execution state (paper_positions +
+      paper_orders) into the `trades` journal table. Idempotent upsert via
+      `ON CONFLICT (paper_position_id) DO UPDATE` — only updates
+      execution-derived fields (entry_price, exit_price, exit_time, pnl,
+      is_completed, quantity). NEVER overwrites user-owned fields (notes, tags,
+      strategy, setup, confidence, is_public, chart_url, stop_loss).
+    - Weighted-average exit price computed from FILLED sell orders.
+      Deterministic from PostgreSQL state — replaying events = same result.
+    - Integration in `paperBroker.js`: sync calls after entry fill, sell fill,
+      manual close, and in `reconcileAll` + `runReconciliationCycle`.
+      All sync calls wrapped in `try/catch` — journal sync failure never blocks
+      execution. Journal is a projection, not execution authority.
+    - `syncAllToJournal()`: batch sync all PAPER positions with filled entries
+      to journal trades (called by reconciliation scheduler).
+    - API: `GET /api/trading/proposals/:id/journal-trade`,
+      `POST /api/trading/proposals/:id/journal-sync` (auth-gated, advisory)
+    - Frontend: `TradeProposalsView` shows journal trade link with P&L +
+      completion status when a journal trade exists for the proposal
+    - Tests: 14 focused tests (entry fill creates trade, exit fill updates,
+      position close marks completed, idempotent replay, user field
+      preservation, P&L correctness, syncAll, getJournalTrade by position/proposal)
+    - fast-review: fixed silent null return when userId unresolvable → now logs warning
+
  7. Backtesting / empirical probabilities
 
 8. Schwab live execution behind feature flag + explicit approval

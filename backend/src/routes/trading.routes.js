@@ -46,4 +46,8 @@ router.get('/paper-account', tradingController.getPaperAccount);
 router.get('/paper-reconciliation/status', tradingController.getPaperReconciliationStatus);
 router.post('/paper-reconciliation/run', tradingController.triggerPaperReconciliation);
 
+// Journal sync
+router.get('/proposals/:id/journal-trade', tradingController.getJournalTrade);
+router.post('/proposals/:id/journal-sync', tradingController.syncJournal);
+
 module.exports = router;
