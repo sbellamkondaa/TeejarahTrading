@@ -222,6 +222,41 @@
           <div class="text-sm text-gray-500 dark:text-gray-400">Insufficient comparable trades</div>
         </div>
 
+        <!-- Empirical calibration evidence -->
+        <div v-if="calibration" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-medium text-gray-500 dark:text-gray-400">Empirical Evidence</div>
+            <span
+              class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+              :class="evidenceQualityClass(calibration.evidenceQuality)"
+            >{{ calibration.evidenceQuality }}</span>
+          </div>
+          <div v-if="calibration.sampleSize > 0" class="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <span>Sample <span class="font-semibold text-mono-num">{{ calibration.sampleSize }}</span></span>
+              <span class="text-indigo-600 dark:text-indigo-400">Backtest <span class="text-mono-num">{{ calibration.backtestCount }}</span></span>
+              <span class="text-purple-600 dark:text-purple-400">Paper <span class="text-mono-num">{{ calibration.paperCount }}</span></span>
+            </div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <span>Win rate <span class="font-semibold text-mono-num">{{ calibration.winRate }}%</span></span>
+              <span v-if="calibration.confidenceInterval" class="text-gray-500 dark:text-gray-400">
+                CI {{ calibration.confidenceInterval.lower }}–{{ calibration.confidenceInterval.upper }}%
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <span>T1 hit <span class="text-mono-num">{{ calibration.t1HitRate }}%</span></span>
+              <span>T2 hit <span class="text-mono-num">{{ calibration.t2HitRate }}%</span></span>
+              <span>Expectancy <span class="text-mono-num">{{ calibration.expectancyR }}R</span></span>
+            </div>
+            <div class="text-xs text-gray-400 dark:text-gray-500">
+              Advisory only — historical empirical rate, not a prediction. Does not affect risk or approval.
+            </div>
+          </div>
+          <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+            Insufficient comparable observations (0 samples)
+          </div>
+        </div>
+
         <!-- Risk evaluation -->
         <div v-if="riskEvaluation" class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
           <div class="flex items-center justify-between mb-2">
@@ -550,6 +585,7 @@ const paperOrders = ref(null)
 const journalTrade = ref(null)
 const unrealizedPnl = ref(null)
 const stopUpdateForm = reactive({ stopPrice: null })
+const calibration = ref(null)
 const reconcileLoading = ref(false)
 const reconcileResult = ref('')
 
@@ -715,8 +751,19 @@ async function openDetail(id) {
     selectedProposal.value = data
     await fetchRiskEvaluation(id)
     await fetchPaperPosition(id)
+    await fetchCalibration(id)
   } catch (err) {
     error.value = err?.response?.data?.error || 'Failed to load proposal'
+  }
+}
+
+async function fetchCalibration(id) {
+  calibration.value = null
+  try {
+    const { data } = await api.get(`/trading/proposals/${id}/calibration`)
+    calibration.value = data
+  } catch {
+    // no calibration data yet
   }
 }
 
@@ -991,6 +1038,15 @@ function riskStateClass(state) {
     case 'VALID': return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
     case 'WATCH': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
     case 'REJECTED': return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+    default: return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+  }
+}
+
+function evidenceQualityClass(quality) {
+  switch (quality) {
+    case 'STRONG': return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+    case 'MODERATE': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+    case 'LOW': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
     default: return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
   }
 }

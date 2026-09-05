@@ -60,4 +60,8 @@ router.get('/backtest-runs', tradingController.listBacktestRuns);
 router.get('/backtest-runs/:id', tradingController.getBacktestRun);
 router.get('/backtest-runs/:id/trades', tradingController.getBacktestRunTrades);
 
+// Empirical calibration
+router.get('/calibration', tradingController.getCalibrationStats);
+router.get('/proposals/:id/calibration', tradingController.getProposalCalibration);
+
 module.exports = router;

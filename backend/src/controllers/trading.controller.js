@@ -12,6 +12,7 @@ const paperReconciliationScheduler = require('../services/trading/paperReconcili
 const journalSync = require('../services/trading/journalSyncService');
 const setupStatsService = require('../services/trading/setupStatsService');
 const backtestService = require('../services/trading/backtestService');
+const calibrationService = require('../services/trading/calibrationService');
 
 // --- Execution mode ---
 
@@ -541,6 +542,21 @@ async function getBacktestRunTrades(req, res) {
   return res.json({ trades, count: trades.length });
 }
 
+// --- Empirical calibration ---
+
+async function getCalibrationStats(req, res) {
+  const { strategyId, strategyVersion, setupType } = req.query;
+  const stats = await calibrationService.getCalibration({ strategyId, strategyVersion, setupType });
+  return res.json(stats);
+}
+
+async function getProposalCalibration(req, res) {
+  const proposal = await proposalService.getById(req.params.id);
+  if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
+  const calibration = await calibrationService.getCalibrationForProposal(req.params.id);
+  return res.json(calibration);
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -580,5 +596,7 @@ module.exports = {
   createBacktestRun: asyncHandler(createBacktestRun),
   listBacktestRuns: asyncHandler(listBacktestRuns),
   getBacktestRun: asyncHandler(getBacktestRun),
-  getBacktestRunTrades: asyncHandler(getBacktestRunTrades)
+  getBacktestRunTrades: asyncHandler(getBacktestRunTrades),
+  getCalibrationStats: asyncHandler(getCalibrationStats),
+  getProposalCalibration: asyncHandler(getProposalCalibration)
 };

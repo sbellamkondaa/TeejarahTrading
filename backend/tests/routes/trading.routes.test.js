@@ -48,7 +48,9 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   createBacktestRun: jest.fn(),
   listBacktestRuns: jest.fn(),
   getBacktestRun: jest.fn(),
-  getBacktestRunTrades: jest.fn()
+  getBacktestRunTrades: jest.fn(),
+  getCalibrationStats: jest.fn(),
+  getProposalCalibration: jest.fn()
 }));
 
 const express = require('express');
@@ -80,6 +82,7 @@ describe('trading.routes wiring', () => {
       '/backtest-runs',
       '/backtest-runs/:id',
       '/backtest-runs/:id/trades',
+      '/calibration',
       '/execution-mode',
       '/paper-account',
       '/paper-orders',
@@ -88,6 +91,7 @@ describe('trading.routes wiring', () => {
       '/paper-reconciliation/status',
       '/proposals',
       '/proposals/:id',
+      '/proposals/:id/calibration',
       '/proposals/:id/journal-trade',
       '/proposals/:id/paper-position',
       '/proposals/:id/paper-reconcile',
