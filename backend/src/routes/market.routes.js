@@ -13,5 +13,6 @@ router.get('/filings', marketController.getFilings);
 router.get('/movers', marketController.getMovers);
 router.get('/scanner', marketController.getScanner);
 router.get('/relationships/:symbol', marketController.getRelationships);
+router.get('/candles', marketController.getCandles);
 
 module.exports = router;

@@ -316,6 +316,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/market/live',
+      name: 'trading-workstation',
+      component: () => import('@/views/TradingWorkstationView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/trading/proposals',
       name: 'trade-proposals',
       component: () => import('@/views/TradeProposalsView.vue'),

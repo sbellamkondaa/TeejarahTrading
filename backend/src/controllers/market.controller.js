@@ -844,6 +844,30 @@ async function getRelationships(req, res) {
   }
 }
 
+// --- Intraday candles for the workstation chart ---
+
+async function getCandles(req, res) {
+  const symbol = (typeof req.query.symbol === 'string' ? req.query.symbol : '').trim().toUpperCase();
+  if (!symbol || !/^[A-Z][A-Z0-9.\-]{0,15}$/.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+  const resolution = ['5', '1', '15'].includes(req.query.resolution) ? req.query.resolution : '5';
+  const hours = Math.min(Math.max(parseInt(req.query.hours, 10) || 8, 1), 12);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fromSec = nowSec - (hours * 3600);
+
+  try {
+    const candles = await schwabMarketData.getCandles(symbol, resolution, fromSec, nowSec);
+    if (!candles || candles.length === 0) {
+      return res.json({ symbol, resolution, candles: [], source: 'schwab', stale: true });
+    }
+    return res.json({ symbol, resolution, candles, source: 'schwab', as_of: Date.now() });
+  } catch (error) {
+    logger.error('[MARKET] candles error for ' + symbol + ': ' + error.message);
+    return res.status(502).json({ error: 'Unable to fetch candle data' });
+  }
+}
+
 module.exports = {
   getIndices: asyncHandler(getIndices),
   getHalts: asyncHandler(getHalts),
@@ -852,5 +876,6 @@ module.exports = {
   getFilings: asyncHandler(getFilings),
   getMovers: asyncHandler(getMovers),
   getScanner: asyncHandler(getScanner),
-  getRelationships: asyncHandler(getRelationships)
+  getRelationships: asyncHandler(getRelationships),
+  getCandles: asyncHandler(getCandles)
 };
