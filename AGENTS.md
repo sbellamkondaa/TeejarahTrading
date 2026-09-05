@@ -184,6 +184,7 @@ Use `documentation/PROJECT_STATE.md` for current implementation/status.
 
 Do not assume either file is more current than the live Git working tree.
 When state conflicts with Git/code, report the discrepancy and use the live repository as implementation truth.
+
 ## Trading Automation Safety
 
 For Teejarah trading automation:
@@ -199,3 +200,60 @@ For Teejarah trading automation:
 - Never display fabricated win probability.
 - Approval must always be tied to a specific persisted/versioned trade proposal.
 - Revalidate quote freshness, halt state, buying power, risk, and broker state before execution.
+
+### Cost Control
+
+Default to the lowest-cost model capable of completing the task correctly.
+
+Model routing:
+
+- GLM-5.3 Flash:
+  - repository exploration
+  - locating files/symbols
+  - summaries
+  - simple edits
+  - documentation updates
+  - low-risk repetitive work
+
+- GLM-5.2:
+  - normal implementation
+  - multi-file coding
+  - migrations
+  - backend/frontend integration
+  - debugging requiring reasoning
+
+- DeepSeek V4 Flash:
+  - one final diff review only when the diff is meaningful
+
+- Kimi K2.7 Code:
+  - only when normal implementation/debugging fails
+  - requires explicit escalation
+
+- Claude / premium models:
+  - only for security-critical or architecture-critical issues
+  - requires explicit escalation
+
+Do not use premium models for:
+- repository exploration
+- grep/search
+- routine frontend work
+- documentation
+- simple tests
+- build-log analysis
+- ordinary deployment validation
+
+Token rules:
+
+- Never read the whole repository.
+- Never reread PRODUCT_REQUIREMENTS.md repeatedly during one task.
+- Read PROJECT_STATE.md once at task start unless materially changed.
+- Prefer grep/glob/symbol search before opening files.
+- Read only relevant sections of large files.
+- Do not dump full files into model context unless necessary.
+- Do not run broad test suites after every edit.
+- Do not run Docker builds until focused tests pass.
+- Run fast-review only once, on the final meaningful diff.
+- Do not ask multiple agents the same question.
+- Do not use code-specialist or premium-review unless the normal model failed or a hard-risk issue requires it.
+- Prefer deterministic scripts/tools over model reasoning for status, logs, tests, Git, and deployment checks.
+- Start a fresh OpenCode session for each milestone.
