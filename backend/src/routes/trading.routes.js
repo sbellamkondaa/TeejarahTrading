@@ -54,4 +54,10 @@ router.post('/proposals/:id/journal-sync', tradingController.syncJournal);
 router.get('/setup-stats', tradingController.getSetupStats);
 router.get('/setup-stats/:setupType', tradingController.getSetupStatsByType);
 
+// Backtest runs
+router.post('/backtest-runs', tradingController.createBacktestRun);
+router.get('/backtest-runs', tradingController.listBacktestRuns);
+router.get('/backtest-runs/:id', tradingController.getBacktestRun);
+router.get('/backtest-runs/:id/trades', tradingController.getBacktestRunTrades);
+
 module.exports = router;

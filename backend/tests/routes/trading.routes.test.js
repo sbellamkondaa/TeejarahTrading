@@ -44,7 +44,11 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   getJournalTrade: jest.fn(),
   syncJournal: jest.fn(),
   getSetupStats: jest.fn(),
-  getSetupStatsByType: jest.fn()
+  getSetupStatsByType: jest.fn(),
+  createBacktestRun: jest.fn(),
+  listBacktestRuns: jest.fn(),
+  getBacktestRun: jest.fn(),
+  getBacktestRunTrades: jest.fn()
 }));
 
 const express = require('express');
@@ -73,6 +77,9 @@ describe('trading.routes wiring', () => {
   test('all expected GET endpoints are registered', () => {
     const paths = getCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual([
+      '/backtest-runs',
+      '/backtest-runs/:id',
+      '/backtest-runs/:id/trades',
       '/execution-mode',
       '/paper-account',
       '/paper-orders',
@@ -98,6 +105,7 @@ describe('trading.routes wiring', () => {
   test('all expected POST endpoints are registered', () => {
     const paths = postCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual([
+      '/backtest-runs',
       '/paper-reconciliation/run',
       '/proposals',
       '/proposals/:id/approval',

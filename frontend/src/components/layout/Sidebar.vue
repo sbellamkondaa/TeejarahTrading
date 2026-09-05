@@ -531,6 +531,8 @@ const navItems = computed(() => {
         { name: 'Trade Management', to: '/analysis/trade-management', route: 'trade-management', badge: 'pro' },
         { name: 'Playbooks & Grading', to: '/analysis/playbooks', route: 'playbooks', badge: 'pro' },
         { name: 'Backtest Sandbox', to: '/analysis/backtest', route: 'backtest', badge: 'pro' },
+        { name: 'Strategy Backtest', to: '/trading/backtest', route: 'strategy-backtest' },
+        { name: 'Trade Proposals', to: '/trading/proposals', route: 'trade-proposals' },
         { name: 'Prop Firm', to: '/analysis/prop-firm', route: 'prop-firm' }
       ]
     },

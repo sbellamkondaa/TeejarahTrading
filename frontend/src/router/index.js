@@ -322,6 +322,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/trading/backtest',
+      name: 'strategy-backtest',
+      component: () => import('@/views/StrategyPerformanceView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/u/:username',
       name: 'user-profile',
       component: () => import('@/views/UserProfileView.vue')

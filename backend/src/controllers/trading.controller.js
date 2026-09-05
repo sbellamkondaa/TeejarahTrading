@@ -11,6 +11,7 @@ const paperBroker = require('../services/trading/paperBroker');
 const paperReconciliationScheduler = require('../services/trading/paperReconciliationScheduler');
 const journalSync = require('../services/trading/journalSyncService');
 const setupStatsService = require('../services/trading/setupStatsService');
+const backtestService = require('../services/trading/backtestService');
 
 // --- Execution mode ---
 
@@ -502,6 +503,44 @@ async function getSetupStatsByType(req, res) {
   return res.json(stats);
 }
 
+// --- Backtest runs ---
+
+async function createBacktestRun(req, res) {
+  const { strategyId, dateFrom, dateTo, symbols, configOverrides } = req.body || {};
+  if (!strategyId) return res.status(400).json({ error: 'strategyId is required' });
+  if (!dateFrom || !dateTo) return res.status(400).json({ error: 'dateFrom and dateTo are required' });
+  if (!Array.isArray(symbols) || symbols.length === 0) {
+    return res.status(400).json({ error: 'symbols array is required' });
+  }
+  try {
+    const run = await backtestService.createRun({
+      strategyId, dateFrom, dateTo, symbols, configOverrides, userId: req.user.id
+    });
+    return res.status(201).json(run);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+}
+
+async function listBacktestRuns(req, res) {
+  const { strategyId, status } = req.query;
+  const runs = await backtestService.listRuns({ strategyId, status });
+  return res.json({ runs, count: runs.length });
+}
+
+async function getBacktestRun(req, res) {
+  const run = await backtestService.getRun(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Backtest run not found' });
+  return res.json(run);
+}
+
+async function getBacktestRunTrades(req, res) {
+  const run = await backtestService.getRun(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Backtest run not found' });
+  const trades = await backtestService.getRunTrades(run.id);
+  return res.json({ trades, count: trades.length });
+}
+
 module.exports = {
   listStrategies: asyncHandler(listStrategies),
   getStrategy: asyncHandler(getStrategy),
@@ -537,5 +576,9 @@ module.exports = {
   getJournalTrade: asyncHandler(getJournalTrade),
   syncJournal: asyncHandler(syncJournal),
   getSetupStats: asyncHandler(getSetupStats),
-  getSetupStatsByType: asyncHandler(getSetupStatsByType)
+  getSetupStatsByType: asyncHandler(getSetupStatsByType),
+  createBacktestRun: asyncHandler(createBacktestRun),
+  listBacktestRuns: asyncHandler(listBacktestRuns),
+  getBacktestRun: asyncHandler(getBacktestRun),
+  getBacktestRunTrades: asyncHandler(getBacktestRunTrades)
 };
