@@ -688,7 +688,42 @@ Current safety defaults:
      Also includes setupStatsService.js (empirical win rates from journal
      trades table — prefix-matched to canonical setup types):
      - API: GET /api/trading/setup-stats, GET /api/trading/setup-stats/:setupType
-     - Tests: 22 tests (normalization, aggregation, prefix matching, I/O)
+      - Tests: 22 tests (normalization, aggregation, prefix matching, I/O)
+
+  7b. Strategy Statistics + Empirical Calibration ← COMPLETED
+      - calibrationEngine.js: pure engine — Wilson score confidence interval
+        (95% CI, z=1.96), evidence quality labels (INSUFFICIENT <10, LOW 10-29,
+        MODERATE 30-99, STRONG 100+), source separation (BACKTEST/PAPER counts
+        always visible), strategy version isolation (never combines
+        incompatible versions), segmentation by 11 dimensions (gap, RVOL,
+        catalyst strength/type, market regime, volatility, liquidity, dilution,
+        price bucket, time of day, strategy version), proposal feature matching
+        with version-strict filtering + prefix setup-type matching + optional
+        gap/RVOL bucket narrowing when sample sufficient.
+      - Calibration metrics: sample size, backtest count, paper count, wins,
+        losses, breakeven, win rate, confidence interval, T1/T2/stop hit rates,
+        avg R, median R, expectancy R, profit factor, cumulative R, max
+        drawdown R, max consecutive losses, avg/median hold time, evidence
+        quality label.
+      - calibrationService.js: queries backtest_trades (completed runs only) +
+        paper_positions (CLOSED only) + batch paper_orders for T1/T2/stop
+        determination. R-multiple computed from entry/stop + realized P&L.
+        No future-data leakage — only historical completed observations.
+      - API: GET /api/trading/calibration (query params: strategyId,
+        strategyVersion, setupType), GET /api/trading/proposals/:id/calibration
+        (matches proposal features to comparable observations).
+      - Frontend: empirical evidence section in TradeProposalsView detail modal
+        — sample size, backtest/paper counts, win rate + CI, T1/T2 hit rates,
+        expectancy, evidence quality badge, advisory-only disclaimer.
+      - Tests: 59 engine tests (Wilson CI correctness, evidence thresholds,
+        strategy version isolation, source separation, no duplicate
+        observations, deterministic repeatability, segmentation, proposal
+        matching, zero/all wins, insufficient sample behavior).
+      - fast-review: fixed N+1 query → batch paper_orders, parseFloat(null)
+        guard, removed duplicate round4, fixed gapBucket label.
+      - Statistics are advisory only — cannot bypass risk rejection, cannot
+        auto-approve proposals, cannot alter position sizing, cannot place
+        PAPER/LIVE orders.
 
 8. Schwab live execution behind feature flag + explicit approval
 
