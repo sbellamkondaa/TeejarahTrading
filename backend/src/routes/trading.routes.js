@@ -43,6 +43,8 @@ router.get('/paper-positions', tradingController.listPaperPositions);
 router.get('/paper-positions/:id', tradingController.getPaperPositionDetail);
 router.get('/paper-orders', tradingController.listPaperOrders);
 router.get('/paper-account', tradingController.getPaperAccount);
+router.post('/paper-account/halt', tradingController.haltPaperTrading);
+router.post('/paper-account/unhalt', tradingController.unhaltPaperTrading);
 router.get('/paper-reconciliation/status', tradingController.getPaperReconciliationStatus);
 router.post('/paper-reconciliation/run', tradingController.triggerPaperReconciliation);
 

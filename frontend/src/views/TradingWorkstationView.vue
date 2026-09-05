@@ -15,12 +15,31 @@
           </span>
         </div>
         <div class="ml-auto flex items-center gap-2 text-xs">
+          <!-- Paper account summary -->
+          <span v-if="paperAccount" class="flex items-center gap-2 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">
+            <span class="text-gray-500 dark:text-gray-400">Equity</span>
+            <span class="text-mono-num font-semibold text-gray-700 dark:text-gray-300">{{ formatPrice(paperAccount.equity) }}</span>
+            <span class="text-gray-400">·</span>
+            <span class="text-gray-500 dark:text-gray-400">BP</span>
+            <span class="text-mono-num text-gray-700 dark:text-gray-300">{{ formatPrice(paperAccount.buying_power) }}</span>
+          </span>
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
             :class="sessionBadgeClass">
             <span class="h-1.5 w-1.5 rounded-full" :class="sessionDotClass"></span>
             {{ sessionLabel }}
           </span>
           <span v-if="scannerStale" class="text-amber-600 dark:text-amber-400">stale</span>
+          <!-- STOP NEW PAPER TRADING control -->
+          <button v-if="!paperTradingHalted"
+            @click="haltPaperTrading"
+            class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60">
+            STOP NEW PAPER
+          </button>
+          <button v-else
+            @click="unhaltPaperTrading"
+            class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60">
+            RESUME PAPER
+          </button>
         </div>
       </div>
     </div>
@@ -343,8 +362,12 @@
             <div v-if="riskEvaluation && riskEvaluation.state === 'REJECTED'" class="p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 mb-2">
               Risk REJECTED — execution disabled
             </div>
+            <!-- PAPER trading halted — new entries blocked -->
+            <div v-if="paperTradingHalted" class="p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 mb-2">
+              PAPER TRADING HALTED — new entries blocked. Existing positions remain manageable.
+            </div>
             <!-- PAPER entry -->
-            <div v-if="canExecutePaper" class="space-y-2">
+            <div v-if="canExecutePaper && !paperTradingHalted" class="space-y-2">
               <button v-if="selectedProposal.lifecycle_state === 'APPROVED'"
                 @click="paperEntry" :disabled="actionLoading"
                 class="w-full px-3 py-1.5 rounded text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
@@ -406,6 +429,7 @@ const quoteData = ref(null)
 
 const chartContainer = ref(null)
 const chartData = ref(null)
+const chartIndicators = ref(null)
 const chartLoading = ref(false)
 const chartError = ref(null)
 const chartStale = ref(false)
@@ -424,6 +448,11 @@ const paperOrders = ref(null)
 const unrealizedPnl = ref(null)
 const actionLoading = ref(false)
 const stopUpdatePrice = ref(null)
+const paperAccount = ref(null)
+const paperTradingHalted = ref(false)
+
+// Abort controller for rapid symbol switching (stale response protection)
+let fetchAbortController = null
 
 const news = ref([])
 const newsLoading = ref(false)
@@ -535,6 +564,11 @@ async function fetchScanner() {
 
 function selectSymbol(candidate) {
   if (!candidate) return
+  // Abort any in-flight requests for the previous symbol
+  if (fetchAbortController) {
+    fetchAbortController.abort()
+  }
+  fetchAbortController = new AbortController()
   selectedSymbol.value = candidate.symbol
   selectedCandidate.value = candidate
   selectedProposal.value = null
@@ -544,6 +578,7 @@ function selectSymbol(candidate) {
   paperOrders.value = null
   unrealizedPnl.value = null
   quoteData.value = null
+  chartData.value = null
 
   fetchQuote()
   fetchChart()
@@ -554,31 +589,38 @@ function selectSymbol(candidate) {
 
 async function fetchQuote() {
   if (!selectedSymbol.value) return
+  const ac = fetchAbortController
   try {
-    const { data } = await api.get('/market/quote', { params: { symbol: selectedSymbol.value } })
-    quoteData.value = data
-  } catch {
-    quoteData.value = null
+    const { data } = await api.get('/market/quote', { params: { symbol: selectedSymbol.value }, signal: ac?.signal })
+    if (fetchAbortController === ac) quoteData.value = data
+  } catch (err) {
+    if (err?.name !== 'CanceledError') quoteData.value = null
   }
 }
 
 async function fetchChart() {
   if (!selectedSymbol.value) return
+  const ac = fetchAbortController
   chartLoading.value = true
   chartError.value = null
-  chartData.value = null
   try {
     const { data } = await api.get('/market/candles', {
-      params: { symbol: selectedSymbol.value, resolution: timeframe.value, hours: 8 }
+      params: { symbol: selectedSymbol.value, resolution: timeframe.value, hours: 8 },
+      signal: ac?.signal
     })
+    // Ignore if a newer request was started
+    if (fetchAbortController !== ac) return
     chartData.value = data.candles || []
+    chartIndicators.value = data.indicators || null
     chartStale.value = data.stale === true
     await nextTick()
     renderChart()
   } catch (err) {
-    chartError.value = 'Chart data unavailable'
+    if (err?.name !== 'CanceledError') {
+      chartError.value = 'Chart data unavailable'
+    }
   } finally {
-    chartLoading.value = false
+    if (fetchAbortController === ac) chartLoading.value = false
   }
 }
 
@@ -746,6 +788,29 @@ function renderChart() {
     }
   }
 
+  // VWAP and EMA overlays from backend-computed indicators
+  const indicators = chartIndicators.value
+  if (indicators) {
+    if (indicators.vwap_series && indicators.vwap_series.length > 0) {
+      const vwapLine = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#6366f1', lineWidth: 2, priceLineVisible: false, lastValueVisible: false
+      })
+      vwapLine.setData(indicators.vwap_series)
+    }
+    if (indicators.ema9_series && indicators.ema9_series.length > 0) {
+      const ema9Line = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false
+      })
+      ema9Line.setData(indicators.ema9_series)
+    }
+    if (indicators.ema20_series && indicators.ema20_series.length > 0) {
+      const ema20Line = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#8b5cf6', lineWidth: 1, priceLineVisible: false, lastValueVisible: false
+      })
+      ema20Line.setData(indicators.ema20_series)
+    }
+  }
+
   chart.timeScale().fitContent()
 }
 
@@ -852,6 +917,43 @@ async function pollActivePaper() {
   if (p && PAPER_ACTIVE_STATES.includes(p.lifecycle_state)) {
     await fetchPaperPosition(p.id)
     await findProposalForSymbol()
+  }
+  await fetchPaperAccount()
+}
+
+// ─── Paper Account / Halt Control ───────────────────────────────────────────
+
+async function fetchPaperAccount() {
+  try {
+    const { data } = await api.get('/trading/paper-account')
+    paperAccount.value = data
+    paperTradingHalted.value = data.paper_trading_halted === true
+  } catch {
+    // no account yet
+  }
+}
+
+async function haltPaperTrading() {
+  actionLoading.value = true
+  try {
+    await api.post('/trading/paper-account/halt')
+    await fetchPaperAccount()
+  } catch {
+    // error
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function unhaltPaperTrading() {
+  actionLoading.value = true
+  try {
+    await api.post('/trading/paper-account/unhalt')
+    await fetchPaperAccount()
+  } catch {
+    // error
+  } finally {
+    actionLoading.value = false
   }
 }
 
@@ -1007,6 +1109,7 @@ onMounted(() => {
   indicesPoll.start()
   scannerPoll.start()
   activePaperPoll.start()
+  fetchPaperAccount()
   if (chartContainer.value) {
     resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(chartContainer.value)

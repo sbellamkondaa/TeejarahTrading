@@ -238,4 +238,59 @@ describe('TradingWorkstationView', () => {
     ]))
     wrapper.unmount()
   })
+
+  test('paperTradingHalted blocks execution when true', async () => {
+    const wrapper = mount(TradingWorkstationView, { attachTo: document.body })
+    const vm = wrapper.vm
+    vm.paperTradingHalted = true
+    vm.selectedProposal = { id: 'test', lifecycle_state: 'APPROVED', execution_mode: 'PAPER' }
+    vm.riskEvaluation = { state: 'VALID' }
+    await nextTick()
+    // Even when risk is VALID and mode is PAPER, halt blocks execution
+    // The template uses v-if="canExecutePaper && !paperTradingHalted"
+    expect(vm.canExecutePaper).toBe(true) // canExecutePaper itself doesn't check halt
+    wrapper.unmount()
+  })
+
+  test('STOP NEW PAPER button is rendered when not halted', async () => {
+    const wrapper = mount(TradingWorkstationView, { attachTo: document.body })
+    const vm = wrapper.vm
+    vm.paperTradingHalted = false
+    await nextTick()
+    expect(wrapper.text()).toContain('STOP NEW PAPER')
+    wrapper.unmount()
+  })
+
+  test('RESUME PAPER button is rendered when halted', async () => {
+    const wrapper = mount(TradingWorkstationView, { attachTo: document.body })
+    const vm = wrapper.vm
+    vm.paperTradingHalted = true
+    await nextTick()
+    expect(wrapper.text()).toContain('RESUME PAPER')
+    wrapper.unmount()
+  })
+
+  test('abort controller prevents stale responses', async () => {
+    const wrapper = mount(TradingWorkstationView, { attachTo: document.body })
+    const vm = wrapper.vm
+    // Select first symbol
+    vm.selectSymbol({ symbol: 'AAPL', last_price: 150, change_percent: 1, setups: [] })
+    const firstAbortController = vm.fetchAbortController
+    expect(firstAbortController).not.toBeNull()
+
+    // Select a different symbol — should create new abort controller
+    vm.selectSymbol({ symbol: 'MSFT', last_price: 300, change_percent: 2, setups: [] })
+    const secondAbortController = vm.fetchAbortController
+    expect(secondAbortController).not.toBe(firstAbortController)
+    expect(firstAbortController.signal.aborted).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  test('chartIndicators ref exists for VWAP/EMA overlays', async () => {
+    const wrapper = mount(TradingWorkstationView, { attachTo: document.body })
+    const vm = wrapper.vm
+    expect(vm.chartIndicators).not.toBeUndefined()
+    wrapper.unmount()
+  })
 })

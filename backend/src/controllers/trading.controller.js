@@ -13,6 +13,7 @@ const journalSync = require('../services/trading/journalSyncService');
 const setupStatsService = require('../services/trading/setupStatsService');
 const backtestService = require('../services/trading/backtestService');
 const calibrationService = require('../services/trading/calibrationService');
+const paperAccountService = require('../services/trading/paperAccountService');
 
 // --- Execution mode ---
 
@@ -446,6 +447,17 @@ async function getPaperAccount(req, res) {
   return res.json(summary);
 }
 
+async function haltPaperTrading(req, res) {
+  const reason = req.body?.reason || 'Manual halt from workstation';
+  const result = await paperAccountService.haltPaperTrading(reason);
+  return res.json(result);
+}
+
+async function unhaltPaperTrading(req, res) {
+  const result = await paperAccountService.unhaltPaperTrading();
+  return res.json(result);
+}
+
 // --- Paper reconciliation ---
 
 async function getPaperReconciliationStatus(req, res) {
@@ -587,6 +599,8 @@ module.exports = {
   listPaperPositions: asyncHandler(listPaperPositions),
   listPaperOrders: asyncHandler(listPaperOrders),
   getPaperAccount: asyncHandler(getPaperAccount),
+  haltPaperTrading: asyncHandler(haltPaperTrading),
+  unhaltPaperTrading: asyncHandler(unhaltPaperTrading),
   getPaperReconciliationStatus: asyncHandler(getPaperReconciliationStatus),
   triggerPaperReconciliation: asyncHandler(triggerPaperReconciliation),
   getJournalTrade: asyncHandler(getJournalTrade),

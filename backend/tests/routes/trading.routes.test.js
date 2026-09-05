@@ -50,7 +50,9 @@ jest.mock('../../src/controllers/trading.controller', () => ({
   getBacktestRun: jest.fn(),
   getBacktestRunTrades: jest.fn(),
   getCalibrationStats: jest.fn(),
-  getProposalCalibration: jest.fn()
+  getProposalCalibration: jest.fn(),
+  haltPaperTrading: jest.fn(),
+  unhaltPaperTrading: jest.fn()
 }));
 
 const express = require('express');
@@ -110,6 +112,8 @@ describe('trading.routes wiring', () => {
     const paths = postCalls.map((args) => args[0]);
     expect(paths.sort()).toEqual([
       '/backtest-runs',
+      '/paper-account/halt',
+      '/paper-account/unhalt',
       '/paper-reconciliation/run',
       '/proposals',
       '/proposals/:id/approval',

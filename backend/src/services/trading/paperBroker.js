@@ -48,6 +48,7 @@ const proposalService = require('./proposalService');
 const auditService = require('./auditService');
 const journalSync = require('./journalSyncService');
 const { isEvaluationStale, getLatestEvaluation, canBecomeReadyForApproval } = require('./riskEngine');
+const paperAccount = require('./paperAccountService');
 const {
   assertOrderTransition,
   assertOrderTransitionFromAny,
@@ -312,6 +313,12 @@ async function submitEntry(proposalId, userId, options = {}) {
     throw new Error('Risk evaluation is stale — recalculate before entry');
   }
 
+  // PAPER trading halt check — blocks new entries, existing positions remain manageable
+  const isHalted = await paperAccount.isPaperTradingHalted();
+  if (isHalted) {
+    throw new Error('PAPER trading is halted — new entries blocked. Existing positions remain manageable.');
+  }
+
   // Get current quote for fill simulation
   let quote;
   try {
@@ -363,6 +370,8 @@ async function submitEntry(proposalId, userId, options = {}) {
     // Entry filled — create position and fill the order
     fillPrice = fill.fillPrice;
 
+    const actualFillQty = fill.fillQty;
+
     const posResult = await db.query(
       `INSERT INTO paper_positions (
          proposal_id, signal_id, strategy_id, strategy_version,
@@ -373,9 +382,24 @@ async function submitEntry(proposalId, userId, options = {}) {
        ) RETURNING *`,
       [proposalId, proposal.signal_id, proposal.strategy_id,
        `${proposal.strategy_id}@v1`,
-       proposal.symbol, proposal.direction, qty, fillPrice]
+       proposal.symbol, proposal.direction, actualFillQty, fillPrice]
     );
     position = posResult.rows[0];
+
+    // Reserve buying power in the PAPER account ledger (based on actual filled qty)
+    const positionValue = round2(actualFillQty * fillPrice);
+    try {
+      await paperAccount.reserveBuyingPower(position.id, positionValue);
+    } catch (reserveErr) {
+      // If reservation fails (insufficient buying power), roll back the position
+      await db.query(`DELETE FROM paper_positions WHERE id = $1`, [position.id]);
+      await db.query(
+        `UPDATE paper_orders SET status = 'REJECTED', cancelled_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [order.id]
+      );
+      await proposalService.transitionState(proposalId, 'REJECTED', userId);
+      throw new Error(`Paper entry rejected: ${reserveErr.message}`);
+    }
 
     // Update order with fill info
     assertOrderTransition(order.status, 'FILLED');
@@ -670,6 +694,16 @@ async function executeSellFill(position, order, fill, proposal, userId) {
   // Sync to journal trade (idempotent — updates exit fields from position state)
   try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] sell fill:', e.message); }
 
+  // Release buying power when position is fully closed
+  if (newStatus === 'CLOSED') {
+    const originalPositionValue = round2(position.total_qty * toNum(position.avg_entry_price));
+    try {
+      await paperAccount.releaseBuyingPower(position.id, newRealizedPnl, originalPositionValue);
+    } catch (releaseErr) {
+      console.error('[PAPER-ACCOUNT] release failed:', releaseErr.message);
+    }
+  }
+
   return {
     order_id: order.id,
     order_type: order.order_type,
@@ -910,6 +944,14 @@ async function manualClose(proposalId, userId) {
   // Sync to journal trade (idempotent — final close updates is_completed + pnl)
   try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] manual close:', e.message); }
 
+  // Release buying power
+  const originalPositionValue = round2(position.total_qty * toNum(position.avg_entry_price));
+  try {
+    await paperAccount.releaseBuyingPower(position.id, finalRealized, originalPositionValue);
+  } catch (releaseErr) {
+    console.error('[PAPER-ACCOUNT] release failed (manual close):', releaseErr.message);
+  }
+
   return {
     order: closeOrder.rows[0],
     fill_price: fillPrice,
@@ -1054,24 +1096,31 @@ async function cancelOrder(orderId, userId) {
 }
 
 async function getAccountSummary() {
-  const openResult = await db.query(
-    `SELECT COUNT(*) AS count, COALESCE(SUM(realized_pnl), 0) AS realized_pnl
-     FROM paper_positions WHERE status = 'OPEN'`
-  );
+  const openPositions = await listPositions({ status: 'OPEN', limit: 200 });
+  // Fetch current quotes for unrealized P&L
+  const symbols = [...new Set(openPositions.map(p => p.symbol))];
+  let quotes = {};
+  if (symbols.length > 0) {
+    try { quotes = await finnhub.getQuotes(symbols); } catch { /* ignore */ }
+  }
+  const positionsWithPrices = openPositions.map(p => ({
+    ...p,
+    current_price: quotes[p.symbol] ? toNum(quotes[p.symbol].c) : null
+  }));
+
+  const accountSummary = await paperAccount.getAccountSummary(positionsWithPrices);
+
   const closedResult = await db.query(
     `SELECT COUNT(*) AS count, COALESCE(SUM(realized_pnl), 0) AS realized_pnl
      FROM paper_positions WHERE status = 'CLOSED'`
   );
-  const open = openResult.rows[0] || {};
   const closed = closedResult.rows[0] || {};
-  const openPnl = toNum(open.realized_pnl) || 0;
-  const closedPnl = toNum(closed.realized_pnl) || 0;
+
   return {
-    open_positions: Number(open.count || 0),
+    ...accountSummary,
+    open_positions: Number(openPositions.length || 0),
     closed_positions: Number(closed.count || 0),
-    open_realized_pnl: round2(openPnl),
-    closed_realized_pnl: round2(closedPnl),
-    total_realized_pnl: round2(openPnl + closedPnl)
+    closed_realized_pnl: round2(toNum(closed.realized_pnl) || 0)
   };
 }
 

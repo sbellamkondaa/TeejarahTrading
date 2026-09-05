@@ -17,11 +17,19 @@ jest.mock('../../src/services/trading/riskEngine', () => ({
   isEvaluationStale: jest.fn(),
   canBecomeReadyForApproval: jest.fn()
 }));
+jest.mock('../../src/services/trading/paperAccountService', () => ({
+  isPaperTradingHalted: jest.fn().mockResolvedValue(false),
+  reserveBuyingPower: jest.fn().mockResolvedValue({}),
+  releaseBuyingPower: jest.fn().mockResolvedValue({}),
+  getAccountSummary: jest.fn().mockResolvedValue({})
+}));
 
 const db = require('../../src/config/database');
 const finnhub = require('../../src/utils/finnhub');
 const proposalService = require('../../src/services/trading/proposalService');
 const { getLatestEvaluation, isEvaluationStale, canBecomeReadyForApproval } = require('../../src/services/trading/riskEngine');
+
+const paperAccount = require('../../src/services/trading/paperAccountService');
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -573,20 +581,33 @@ describe('reconcile', () => {
 
 describe('getAccountSummary', () => {
   beforeEach(() => {
+    // listPositions query (returns open positions with symbols)
     db.query.mockImplementation((sql) => {
-      if (sql.includes("status = 'OPEN'")) return Promise.resolve({ rows: [{ count: 2, realized_pnl: 150.50 }] });
+      if (sql.includes("status = 'OPEN'")) return Promise.resolve({ rows: [] });
       if (sql.includes("status = 'CLOSED'")) return Promise.resolve({ rows: [{ count: 5, realized_pnl: -300.25 }] });
       return Promise.resolve({ rows: [] });
     });
+    // Mock paperAccount.getAccountSummary
+    paperAccount.getAccountSummary.mockResolvedValue({
+      starting_cash: 100000,
+      available_cash: 80000,
+      reserved_cash: 20000,
+      market_value: 0,
+      realized_pnl: 5000,
+      unrealized_pnl: 0,
+      equity: 100000,
+      buying_power: 80000,
+      paper_trading_halted: false
+    });
   });
 
-  test('aggregates open and closed P&L', async () => {
+  test('returns account summary with paper account data', async () => {
     const s = await paperBroker.getAccountSummary();
-    expect(s.open_positions).toBe(2);
+    expect(s.open_positions).toBe(0);
     expect(s.closed_positions).toBe(5);
-    expect(s.open_realized_pnl).toBe(150.50);
-    expect(s.closed_realized_pnl).toBe(-300.25);
-    expect(s.total_realized_pnl).toBe(-149.75);
+    expect(s.equity).toBe(100000);
+    expect(s.buying_power).toBe(80000);
+    expect(s.paper_trading_halted).toBe(false);
   });
 });
 

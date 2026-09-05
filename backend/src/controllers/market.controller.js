@@ -846,6 +846,8 @@ async function getRelationships(req, res) {
 
 // --- Intraday candles for the workstation chart ---
 
+const { calculateSessionVWAP, calculateEMA } = require('../utils/technicalIndicators');
+
 async function getCandles(req, res) {
   const symbol = (typeof req.query.symbol === 'string' ? req.query.symbol : '').trim().toUpperCase();
   if (!symbol || !/^[A-Z][A-Z0-9.\-]{0,15}$/.test(symbol)) {
@@ -861,7 +863,51 @@ async function getCandles(req, res) {
     if (!candles || candles.length === 0) {
       return res.json({ symbol, resolution, candles: [], source: 'schwab', stale: true });
     }
-    return res.json({ symbol, resolution, candles, source: 'schwab', as_of: Date.now() });
+
+    // Compute indicators using the same backend functions as the strategy
+    // Session VWAP — computed cumulatively across all session candles
+    const vwap = calculateSessionVWAP(candles);
+
+    // EMA 9 and EMA 20 — computed from intraday closes
+    const closes = candles.map(c => Number(c.close)).filter(v => v != null && Number.isFinite(v));
+    const ema9 = closes.length >= 9 ? calculateEMA(closes, 9) : null;
+    const ema20 = closes.length >= 20 ? calculateEMA(closes, 20) : null;
+
+    // Per-candle VWAP progression (cumulative)
+    const vwapSeries = [];
+    for (let i = 1; i <= candles.length; i++) {
+      const partial = candles.slice(0, i);
+      const v = calculateSessionVWAP(partial);
+      if (v != null) {
+        vwapSeries.push({ time: partial[partial.length - 1].time, value: v });
+      }
+    }
+
+    // Per-candle EMA progression
+    const ema9Series = [];
+    const ema20Series = [];
+    for (let i = 9; i <= closes.length; i++) {
+      const partialCloses = closes.slice(0, i);
+      const e9 = calculateEMA(partialCloses, 9);
+      if (e9 != null) ema9Series.push({ time: candles[i - 1].time, value: e9 });
+    }
+    for (let i = 20; i <= closes.length; i++) {
+      const partialCloses = closes.slice(0, i);
+      const e20 = calculateEMA(partialCloses, 20);
+      if (e20 != null) ema20Series.push({ time: candles[i - 1].time, value: e20 });
+    }
+
+    return res.json({
+      symbol, resolution, candles, source: 'schwab', as_of: Date.now(),
+      indicators: {
+        vwap: vwap,
+        ema9: ema9,
+        ema20: ema20,
+        vwap_series: vwapSeries,
+        ema9_series: ema9Series,
+        ema20_series: ema20Series
+      }
+    });
   } catch (error) {
     logger.error('[MARKET] candles error for ' + symbol + ': ' + error.message);
     return res.status(502).json({ error: 'Unable to fetch candle data' });
