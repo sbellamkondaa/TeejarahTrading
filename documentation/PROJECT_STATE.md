@@ -784,6 +784,29 @@ Current safety defaults:
       - fast-review: fixed missing unique indexes (DB-level double-reservation
         prevention), fixed partial-fill position qty bug.
 
+  7e. PAPER Account Ledger Consistency + Recovery ← COMPLETED
+      - reserveBuyingPower/releaseBuyingPower: idempotent retry — on duplicate
+        (retry after transient failure), returns current account state instead
+        of throwing. DB unique indexes prevent actual double-insertion.
+      - reconcilePaperAccount: deterministic ledger reconciliation integrated
+        into runReconciliationCycle. Detects and repairs:
+          1. Reservation drift (open position without reservation → add)
+          2. Release drift (closed position without release → add + P&L)
+          3. P&L drift (total_realized_pnl ≠ ledger sum → recompute)
+          4. Reserved-cash drift (reserved_cash ≠ ledger net → recompute)
+          5. Orphaned reservations (reservation without open position →
+             MANUAL_INTERVENTION via audit event)
+      - Unsafe ambiguity (negative available after repair, ambiguous position
+        value, orphaned reservation) → audit event, not auto-repaired.
+      - All repairs and manual interventions persisted as audit events.
+      - Fix: stop partial-fill now releases buying power correctly (checks
+        final position state after stop_close handler, not intermediate status).
+      - Tests: 19 paperAccountService tests (7 reconciliation: reservation/
+        release/P&L/reserved-cash drift, unsafe drift, orphaned reservation,
+        no-drift; idempotent retry; reservation/release/buying-power/halt).
+      - fast-review: no critical findings; fixed latent stop partial-fill
+        release gap.
+
   8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management
