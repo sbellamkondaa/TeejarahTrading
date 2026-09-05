@@ -647,7 +647,48 @@ Current safety defaults:
       preservation, P&L correctness, syncAll, getJournalTrade by position/proposal)
     - fast-review: fixed silent null return when userId unresolvable → now logs warning
 
- 7. Backtesting / empirical probabilities
+  7. Backtesting / Empirical Strategy Statistics ← COMPLETED
+     - Migration 268: backtest_runs + backtest_trades (additive, non-destructive)
+     - backtestEngine.js: pure deterministic engine — no I/O, no random fills,
+       no lookahead bias. Same candles + config → same trades + metrics, always.
+     - No-lookahead rules: VWAP from session start to current bar; ATR/EMA from
+       daily candles up to previous day; RVOL from intraday cumulative volume;
+       gap from today's open vs yesterday's close; entry at signal bar close.
+     - Fill simulation: stop-first same-bar ambiguity (conservative for longs);
+       protective exit thirds (T1/T2/stop); end-of-day exit for open trades;
+       configurable slippage/fees (deterministic).
+     - R-multiple: computed from actual fill prices, not target assumptions
+       (except with non-zero slippage where documented as approximation).
+     - Metrics: total trades, wins/losses/breakeven, win rate, avg winner R,
+       avg loser R, expectancy R, profit factor, cumulative R, max drawdown R,
+       max consecutive losses, avg/median hold time (bars + seconds),
+       T1/T2/stop hit rates. MIN_SAMPLE_SIZE=10, insufficient flag.
+     - Segmentation (10 dimensions): gap bucket, RVOL bucket, catalyst strength,
+       catalyst type, market regime, volatility regime, liquidity rating,
+       dilution risk level, penny-stock, strategy version.
+     - backtestService.js: Schwab candle fetching + PostgreSQL persistence.
+       BACKTEST mode only — no PAPER/LIVE, no broker order API calls.
+       Config snapshot, execution assumptions, data sources, individual
+       simulated trades persisted for full reproducibility.
+     - API: POST /api/trading/backtest-runs, GET /api/trading/backtest-runs,
+       GET /api/trading/backtest-runs/:id, GET /api/trading/backtest-runs/:id/trades
+       (all auth-gated)
+     - Frontend: /trading/backtest — StrategyPerformanceView with metrics grid,
+       segmentation tables, simulated trades table, sample-size prominence,
+       insufficient-sample warning. Sidebar links: Strategy Backtest +
+       Trade Proposals.
+     - Tests: 50 focused tests (determinism, no-lookahead, R calculations,
+       all metrics, segmentation, small sample, strategy version isolation,
+       same-bar ambiguity, slippage/fees, end-of-day exit, minPrice filter,
+       route wiring).
+     - fast-review: fixed RVOL full-day lookahead → intraday cumulative,
+       added minPrice pre-filter, removed dead code (isVwapReclaim, unused
+       imports/variables).
+
+     Also includes setupStatsService.js (empirical win rates from journal
+     trades table — prefix-matched to canonical setup types):
+     - API: GET /api/trading/setup-stats, GET /api/trading/setup-stats/:setupType
+     - Tests: 22 tests (normalization, aggregation, prefix matching, I/O)
 
 8. Schwab live execution behind feature flag + explicit approval
 
