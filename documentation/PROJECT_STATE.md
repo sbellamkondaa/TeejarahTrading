@@ -725,7 +725,39 @@ Current safety defaults:
         auto-approve proposals, cannot alter position sizing, cannot place
         PAPER/LIVE orders.
 
-8. Schwab live execution behind feature flag + explicit approval
+  7c. PAPER Trading Workstation UI ← COMPLETED
+      - TradingWorkstationView.vue (/market/live): single-screen desktop-first
+        three-column trading workstation integrating existing market, scanner,
+        strategy, risk, empirical evidence, PAPER execution, and journal APIs.
+      - TOP MARKET STRIP: SPY/QQQ/IWM/DIA/VIX with session status + freshness.
+      - LEFT: Live scanner with symbol, price, % change, gap, setup scores,
+        catalyst strength, halt state, classification badges. Clicking a
+        symbol selects it across the entire workstation.
+      - CENTER: Symbol/chart workspace with lightweight-charts intraday chart
+        (1m/5m/15m timeframe selection), volume histogram, entry/stop/T1/T2
+        overlay lines when a proposal exists. Bottom tabs: news, catalysts,
+        SEC events, fundamentals, dilution risk, execution history, audit.
+      - RIGHT: Trade setup panel with proposal details (strategy/version, entry,
+        stop, T1, T2, runner, warnings), risk evaluation (preset, equity, max
+        risk, shares, position value, exposure, R:R, VALID/WATCH/REJECTED),
+        empirical calibration evidence (sample size, backtest/paper counts,
+        win rate, CI, T1/T2/stop hit rates, expectancy, evidence quality —
+        advisory only), and PAPER execution actions (approve/reject/watch,
+        execute paper entry, check fills, cancel entry, manual close, update
+        stop).
+      - GET /api/market/candles: new intraday candle endpoint (symbol, resolution,
+        hours) with symbol validation + resolution whitelist.
+      - Visibility-gated polling (30s indices/scanner, 15s active PAPER).
+        Pauses when tab hidden, resumes on refocus.
+      - PAPER-only: canExecutePaper gates on execution_mode='PAPER' + risk
+        state not REJECTED. No LIVE execution path. No Schwab order API calls.
+      - Empirical evidence display-only — cannot affect risk/approval/execution.
+      - Tests: 18 focused tests (symbol selection, scanner refresh preserves
+        selection, risk rejection disables execution, PAPER/LIVE labeling,
+        stale/error states, no execution bypass, advisory evidence rendering).
+      - fast-review: no material findings.
+
+  8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management
 
