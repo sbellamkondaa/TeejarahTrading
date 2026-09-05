@@ -420,6 +420,35 @@
             />
           </div>
 
+          <!-- Linked Paper Positions -->
+          <div class="mb-6">
+            <div class="flex items-start justify-between gap-4 mb-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Paper Trades
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  Link closed paper positions to this journal entry
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="showLinkedPaperPositionsSection = !showLinkedPaperPositionsSection"
+                class="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 whitespace-nowrap"
+              >
+                {{ showLinkedPaperPositionsSection ? 'Hide' : (form.linkedPaperPositions.length > 0 ? 'Manage' : 'Add paper trades') }}
+              </button>
+            </div>
+            <div v-if="!showLinkedPaperPositionsSection" class="text-sm text-gray-500 dark:text-gray-400">
+              <span v-if="form.linkedPaperPositions.length > 0">{{ form.linkedPaperPositions.length }} paper trade{{ form.linkedPaperPositions.length === 1 ? '' : 's' }} linked</span>
+              <span v-else>Paper position selector loads when you open this section.</span>
+            </div>
+            <PaperPositionSelector
+              v-else
+              v-model="form.linkedPaperPositions"
+            />
+          </div>
+
           <!-- Tags -->
           <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -600,6 +629,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const TradeSelector = defineAsyncComponent(() => import('@/components/diary/TradeSelector.vue'))
+const PaperPositionSelector = defineAsyncComponent(() => import('@/components/diary/PaperPositionSelector.vue'))
 const DiaryImageUpload = defineAsyncComponent(() => import('@/components/diary/DiaryImageUpload.vue'))
 
 const route = useRoute()
@@ -617,6 +647,7 @@ const templatesLoading = ref(false)
 const templatesLoadedForType = ref(null)
 const selectedTemplateName = ref('')
 const showLinkedTradesSection = ref(false)
+const showLinkedPaperPositionsSection = ref(false)
 const showAttachmentsSection = ref(false)
 const hasPendingImages = ref(false)
 
@@ -637,6 +668,7 @@ const form = ref({
   keyLevels: '',
   watchlist: [],
   linkedTrades: [],
+  linkedPaperPositions: [],
   tags: [],
   followedPlan: null,
   lessonsLearned: ''
@@ -990,12 +1022,14 @@ const loadEntry = async () => {
         keyLevels: entry.key_levels || '',
         watchlist: entry.watchlist || [],
         linkedTrades: entry.linked_trades || [],
+        linkedPaperPositions: entry.linked_paper_positions || [],
         tags: entry.tags || [],
         followedPlan: entry.followed_plan,
         lessonsLearned: entry.lessons_learned || ''
       }
 
       showLinkedTradesSection.value = form.value.linkedTrades.length > 0
+      showLinkedPaperPositionsSection.value = form.value.linkedPaperPositions.length > 0
       showAttachmentsSection.value = entryAttachments.value.length > 0
     }
   } catch (err) {
@@ -1034,6 +1068,7 @@ const saveEntry = async () => {
       keyLevels: form.value.keyLevels.trim() || null,
       watchlist: form.value.watchlist,
       linkedTrades: form.value.linkedTrades,
+      linkedPaperPositions: form.value.linkedPaperPositions,
       tags: form.value.tags,
       followedPlan: form.value.followedPlan,
       lessonsLearned: form.value.lessonsLearned.trim() || null
@@ -1074,6 +1109,7 @@ onMounted(async () => {
   } else {
     // Keep expensive helpers collapsed on fresh entries.
     showLinkedTradesSection.value = false
+    showLinkedPaperPositionsSection.value = false
     showAttachmentsSection.value = false
 
     if (route.query.template_id) {

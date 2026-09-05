@@ -599,9 +599,28 @@ Current safety defaults:
      increased Redis lock TTL, added cancelOrder state-machine assertion,
      removed redundant assertion.
 
-6. Journal + reconciliation integration
+ 6. Journal + reconciliation integration ← COMPLETED
+    - Migration 266: `linked_paper_positions UUID[]` added to `diary_entries`
+      (additive, non-destructive — follows the `linked_trades` pattern from
+      migration 076)
+    - Diary model (`Diary.js`): `create()` and `update()` handle
+      `linkedPaperPositions` ↔ `linked_paper_positions` (same camelCase ↔
+      snake_case mapping as `linkedTrades`)
+    - Diary controller + validation: `linkedPaperPositions` passed through in
+      create/update; Joi schema accepts `array().items(string().uuid())`
+    - Paper broker: `listPositions()` now joins `trading_strategies` for
+      `strategy_name`; new `getPaperPositionById(positionId)` returns a single
+      position with its orders
+    - API: `GET /api/trading/paper-positions/:id` — single position + orders
+      for journal detail display
+    - Frontend: `PaperPositionSelector.vue` (multi-select closed paper
+      positions in diary form), `LinkedPaperPositionsList.vue` (badge list in
+      diary detail), `DiaryFormView` "Paper Trades" section,
+      `DiaryView` linked paper positions display
+    - Route test updated for new endpoint
+    - All existing diary + trading tests pass; frontend build succeeds
 
-7. Backtesting / empirical probabilities
+ 7. Backtesting / empirical probabilities
 
 8. Schwab live execution behind feature flag + explicit approval
 

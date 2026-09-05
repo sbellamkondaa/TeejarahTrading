@@ -424,6 +424,13 @@ async function listPaperPositions(req, res) {
   return res.json({ positions, count: positions.length });
 }
 
+async function getPaperPositionDetail(req, res) {
+  const position = await paperBroker.getPaperPositionById(req.params.id);
+  if (!position) return res.status(404).json({ error: 'Paper position not found' });
+  const orders = await paperBroker.getOrders(position.proposal_id);
+  return res.json({ position, orders });
+}
+
 async function listPaperOrders(req, res) {
   const { status, proposalId } = req.query;
   const orders = await paperBroker.listOrders({ status, proposalId });
@@ -483,6 +490,7 @@ module.exports = {
   paperManualClose: asyncHandler(paperManualClose),
   paperReconcile: asyncHandler(paperReconcile),
   getPaperPosition: asyncHandler(getPaperPosition),
+  getPaperPositionDetail: asyncHandler(getPaperPositionDetail),
   listPaperPositions: asyncHandler(listPaperPositions),
   listPaperOrders: asyncHandler(listPaperOrders),
   getPaperAccount: asyncHandler(getPaperAccount),

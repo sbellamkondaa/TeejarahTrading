@@ -342,6 +342,11 @@
             <LinkedTradesList :trade-ids="entry.linked_trades" />
           </div>
 
+          <div v-if="entry.linked_paper_positions && entry.linked_paper_positions.length > 0" class="mb-3">
+            <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400 mr-2">Paper Trades:</span>
+            <LinkedPaperPositionsList :position-ids="entry.linked_paper_positions" />
+          </div>
+
           <div v-if="entry.tags && entry.tags.length > 0" class="flex flex-wrap gap-2 mb-3">
             <span
               v-for="tag in entry.tags.slice(0, 3)"
@@ -613,6 +618,7 @@ import DiaryAnalysis from '@/components/diary/DiaryAnalysis.vue'
 import GeneralNotes from '@/components/diary/GeneralNotes.vue'
 import TemplateManager from '@/components/diary/TemplateManager.vue'
 import LinkedTradesList from '@/components/diary/LinkedTradesList.vue'
+import LinkedPaperPositionsList from '@/components/diary/LinkedPaperPositionsList.vue'
 import WatchlistSymbol from '@/components/diary/WatchlistSymbol.vue'
 import OnboardingCard from '@/components/onboarding/OnboardingCard.vue'
 import BaseSelect from '@/components/common/BaseSelect.vue'

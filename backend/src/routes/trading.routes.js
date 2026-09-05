@@ -40,6 +40,7 @@ router.post('/proposals/:id/paper-manual-close', tradingController.paperManualCl
 router.get('/proposals/:id/paper-reconcile', tradingController.paperReconcile);
 router.get('/proposals/:id/paper-position', tradingController.getPaperPosition);
 router.get('/paper-positions', tradingController.listPaperPositions);
+router.get('/paper-positions/:id', tradingController.getPaperPositionDetail);
 router.get('/paper-orders', tradingController.listPaperOrders);
 router.get('/paper-account', tradingController.getPaperAccount);
 router.get('/paper-reconciliation/status', tradingController.getPaperReconciliationStatus);

@@ -985,10 +985,24 @@ async function listPositions({ status, limit = 50 } = {}) {
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   params.push(limit);
   const result = await db.query(
-    `SELECT * FROM paper_positions ${where} ORDER BY opened_at DESC LIMIT $${params.length}`,
+    `SELECT pp.*, ts.name AS strategy_name
+     FROM paper_positions pp
+     LEFT JOIN trading_strategies ts ON pp.strategy_id = ts.id
+     ${where} ORDER BY pp.opened_at DESC LIMIT $${params.length}`,
     params
   );
   return result.rows;
+}
+
+async function getPaperPositionById(positionId) {
+  const result = await db.query(
+    `SELECT pp.*, ts.name AS strategy_name
+     FROM paper_positions pp
+     LEFT JOIN trading_strategies ts ON pp.strategy_id = ts.id
+     WHERE pp.id = $1`,
+    [positionId]
+  );
+  return result.rows[0] || null;
 }
 
 async function listOrders({ status, proposalId, limit = 100 } = {}) {
@@ -1353,6 +1367,7 @@ module.exports = {
   // Queries
   getOrder,
   getPosition,
+  getPaperPositionById,
   getOrders,
   listPositions,
   listOrders,

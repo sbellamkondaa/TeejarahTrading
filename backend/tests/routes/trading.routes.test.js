@@ -73,6 +73,7 @@ describe('trading.routes wiring', () => {
       '/paper-account',
       '/paper-orders',
       '/paper-positions',
+      '/paper-positions/:id',
       '/paper-reconciliation/status',
       '/proposals',
       '/proposals/:id',

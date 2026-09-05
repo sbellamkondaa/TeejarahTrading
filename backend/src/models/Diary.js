@@ -5,7 +5,7 @@ class Diary {
   static async create(userId, entryData) {
     const {
       entryDate, title, content, tags, entryType = 'diary',
-      marketBias, keyLevels, watchlist, linkedTrades, followedPlan, lessonsLearned
+      marketBias, keyLevels, watchlist, linkedTrades, linkedPaperPositions, followedPlan, lessonsLearned
     } = entryData;
 
     // Use provided date or today's date in user's timezone
@@ -14,9 +14,9 @@ class Diary {
     const query = `
       INSERT INTO diary_entries (
         user_id, entry_date, title, content, tags, entry_type,
-        market_bias, key_levels, watchlist, linked_trades, followed_plan, lessons_learned
+        market_bias, key_levels, watchlist, linked_trades, linked_paper_positions, followed_plan, lessons_learned
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
 
@@ -31,6 +31,7 @@ class Diary {
       keyLevels || null,
       watchlist || [],
       linkedTrades || [],
+      linkedPaperPositions || [],
       followedPlan || null,
       lessonsLearned || null
     ];
@@ -239,13 +240,14 @@ class Diary {
       marketBias: 'market_bias',
       keyLevels: 'key_levels',
       linkedTrades: 'linked_trades',
+      linkedPaperPositions: 'linked_paper_positions',
       followedPlan: 'followed_plan',
       lessonsLearned: 'lessons_learned'
     };
 
     const allowedFields = [
       'entry_date', 'title', 'content', 'tags', 'entry_type', 'market_bias',
-      'key_levels', 'watchlist', 'linked_trades', 'followed_plan', 'lessons_learned'
+      'key_levels', 'watchlist', 'linked_trades', 'linked_paper_positions', 'followed_plan', 'lessons_learned'
     ];
 
     const fields = [];
