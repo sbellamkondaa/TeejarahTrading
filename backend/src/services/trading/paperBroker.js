@@ -695,10 +695,20 @@ async function executeSellFill(position, order, fill, proposal, userId) {
   try { await journalSync.syncPositionToJournal(position.id, userId); } catch (e) { console.error('[JOURNAL-SYNC] sell fill:', e.message); }
 
   // Release buying power when position is fully closed
-  if (newStatus === 'CLOSED') {
+  // Check the final state after any stop_close handler, not just the intermediate newStatus
+  let positionClosed = newStatus === 'CLOSED';
+  if (order.order_type === 'stop' && newRemaining > 0) {
+    // The stop_close handler above closed the position — verify it's truly closed
+    const checkPos = await db.query(`SELECT status FROM paper_positions WHERE id = $1`, [position.id]);
+    positionClosed = checkPos.rows[0]?.status === 'CLOSED';
+  }
+  if (positionClosed) {
     const originalPositionValue = round2(position.total_qty * toNum(position.avg_entry_price));
     try {
-      await paperAccount.releaseBuyingPower(position.id, newRealizedPnl, originalPositionValue);
+      const realizedForRelease = order.order_type === 'stop' && newRemaining > 0
+        ? finalRealized  // use the final realized P&L after stop_close
+        : newRealizedPnl;
+      await paperAccount.releaseBuyingPower(position.id, realizedForRelease, originalPositionValue);
     } catch (releaseErr) {
       console.error('[PAPER-ACCOUNT] release failed:', releaseErr.message);
     }
@@ -1403,6 +1413,14 @@ async function runReconciliationCycle(userId = null) {
   const recovery = await runRestartRecovery(userId);
   const fillResult = await reconcileAll(userId);
 
+  // Reconcile PAPER account ledger against actual position state
+  let accountReconciliation = null;
+  try {
+    accountReconciliation = await paperAccount.reconcilePaperAccount(userId);
+  } catch (e) {
+    accountReconciliation = { repairs: [], manualInterventions: [{ type: 'reconciliation_error', reason: e.message }], summary: { error: e.message } };
+  }
+
   // Sync all paper positions to journal trades (idempotent — safe to replay)
   let journalSynced = 0;
   let journalErrors = [];
@@ -1413,14 +1431,15 @@ async function runReconciliationCycle(userId = null) {
   } catch (e) { journalErrors = [{ error: e.message }]; }
 
   return {
-    repairs: recovery.repairs.length,
-    manualInterventions: recovery.manualInterventions.length,
+    repairs: recovery.repairs.length + (accountReconciliation.repairs?.length || 0),
+    manualInterventions: recovery.manualInterventions.length + (accountReconciliation.manualInterventions?.length || 0),
     positionsProcessed: fillResult.positionsProcessed,
     fillsApplied: fillResult.fillsApplied,
     errors: fillResult.errors,
     journalSynced,
     journalErrors,
-    recoveryDetails: recovery
+    recoveryDetails: recovery,
+    accountReconciliation
   };
 }
 
