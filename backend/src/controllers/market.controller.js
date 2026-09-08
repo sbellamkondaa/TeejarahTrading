@@ -12,6 +12,18 @@ const { buildFundamentalProfiles } = require('../services/fundamentalEngine');
 const { assessDilutionRisk } = require('../services/dilutionRiskEngine');
 const { getCatalystsForSymbols, getStrongestCatalyst } = require('../services/catalystEngine');
 const { getRelationshipGraph } = require('../services/stockRelationshipService');
+const { queryEvents, getEventsForSymbol } = require('../services/marketIntelligence/eventQueryService');
+const { scoreEvent, categorize, CATEGORY } = require('../services/marketIntelligence/eventRanker');
+const { listSources } = require('../services/marketIntelligence/sourceRegistry');
+const {
+  scoreOpportunity,
+  applyDiscoveryFilters,
+  PRICE_PRESETS
+} = require('../services/marketIntelligence/opportunityScore');
+const {
+  isSchedulerEnabled: isIntelSchedulerEnabled,
+  SCHEDULER_NAME: INTEL_SCHEDULER_NAME
+} = require('../services/marketIntelligence/marketIntelligenceScheduler');
 
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 
@@ -440,6 +452,17 @@ async function getMovers(req, res) {
   const minVolume = parseFloatParam(req.query.min_volume, null);
   const includeHalted = String(req.query.include_halted || '').toLowerCase() !== 'false';
 
+  // Price preset overrides explicit min/max when provided
+  let effectiveMinPrice = minPrice;
+  let effectiveMaxPrice = maxPrice;
+  if (req.query.price_preset) {
+    const preset = PRICE_PRESETS.find((p) => p.id === req.query.price_preset);
+    if (preset) {
+      effectiveMinPrice = preset.min_price;
+      effectiveMaxPrice = preset.max_price;
+    }
+  }
+
   // Fetch movers from all Schwab indexes (cached 60s, single batch call each)
   const allItems = [];
   const fetchedAts = [];
@@ -536,8 +559,8 @@ async function getMovers(req, res) {
 
   // Apply price/gap/volume filters
   movers = movers.filter((m) => {
-    if (minPrice != null && (m.last_price == null || m.last_price < minPrice)) return false;
-    if (maxPrice != null && (m.last_price == null || m.last_price > maxPrice)) return false;
+    if (effectiveMinPrice != null && (m.last_price == null || m.last_price < effectiveMinPrice)) return false;
+    if (effectiveMaxPrice != null && (m.last_price == null || m.last_price > effectiveMaxPrice)) return false;
     if (minGap != null && (m.gap_pct == null || m.gap_pct < minGap)) return false;
     if (minVolume != null && (m.volume == null || m.volume < minVolume)) return false;
     return true;
@@ -632,6 +655,9 @@ function compactFundamental(profile) {
 }
 
 // GET /api/market/scanner?category=gainers&limit=25&min_score=40
+//   &min_price=&max_price=&min_gap=&max_gap=&min_rvol=&min_volume=
+//   &min_dollar_volume=&max_spread=&market_cap=micro|small|mid|large
+//   &exclude_otc=true&price_preset=5_20
 async function getScanner(req, res) {
   const limit = parseLimit(req.query.limit);
   const minScoreRaw = parseInt(req.query.min_score, 10);
@@ -640,6 +666,27 @@ async function getScanner(req, res) {
     : 40;
 
   const excludePennyStocks = String(req.query.exclude_penny ?? 'true').toLowerCase() !== 'false';
+
+  // Discovery filters (price presets, gap, rvol, volume, market cap, exchange)
+  const discoveryFilters = {
+    min_price: req.query.min_price,
+    max_price: req.query.max_price,
+    min_gap: req.query.min_gap,
+    max_gap: req.query.max_gap,
+    min_rvol: req.query.min_rvol,
+    min_volume: req.query.min_volume,
+    min_dollar_volume: req.query.min_dollar_volume,
+    max_spread: req.query.max_spread,
+    market_cap: req.query.market_cap,
+    exclude_otc: req.query.exclude_otc
+  };
+  if (req.query.price_preset) {
+    const preset = PRICE_PRESETS.find((p) => p.id === req.query.price_preset);
+    if (preset) {
+      discoveryFilters.min_price = preset.min_price;
+      discoveryFilters.max_price = preset.max_price;
+    }
+  }
 
   // Fetch movers (reuse the same Schwab movers + enrichment pipeline)
   const allItems = [];
@@ -791,7 +838,22 @@ async function getScanner(req, res) {
       source_url: cat.source_url,
       strength: cat.strength
     }));
+    // Deterministic opportunity score with explainable factor breakdown
+    const opp = scoreOpportunity({
+      gap_pct: r.gap_pct,
+      rvol: r.rvol,
+      volume: src.volume ?? r.volume,
+      liquidity_rating: r.liquidity_rating,
+      catalyst_strength: r.catalyst_strength,
+      best_setup: r.best_setup,
+      relative_strength: r.relative_strength
+    });
+    r.opportunity_score = opp.score;
+    r.opportunity_factors = opp.factors;
   }
+
+  // Apply discovery filters post-scan (price presets, gap, rvol, volume, market cap)
+  const filteredResults = applyDiscoveryFilters(results, discoveryFilters);
 
   // Fetch extended index quotes for market context
   let indices = null;
@@ -822,9 +884,19 @@ async function getScanner(req, res) {
     as_of: asOf,
     source,
     indices,
-    candidates: results,
-    count: results.length,
-    min_score: minScore
+    candidates: filteredResults,
+    count: filteredResults.length,
+    min_score: minScore,
+    price_presets: PRICE_PRESETS,
+    filters: {
+      min_price: discoveryFilters.min_price || null,
+      max_price: discoveryFilters.max_price || null,
+      market_cap: discoveryFilters.market_cap || null,
+      min_gap: discoveryFilters.min_gap || null,
+      max_gap: discoveryFilters.max_gap || null,
+      min_rvol: discoveryFilters.min_rvol || null,
+      min_volume: discoveryFilters.min_volume || null
+    }
   });
 }
 
@@ -914,6 +986,92 @@ async function getCandles(req, res) {
   }
 }
 
+// --- Market Intelligence V2: persistent event store ---
+
+// GET /api/market/events
+//   &preset=today|1h|4h|24h|7d  &from=&to=
+//   &symbol=  &q=headline-text  &source=  &event_type=  &source_tier=
+//   &min_materiality=  &catalyst_only=true  &verification_state=
+//   &page_size=  &cursor=
+async function getEvents(req, res) {
+  const opts = {
+    preset: req.query.preset,
+    from: req.query.from,
+    to: req.query.to,
+    symbol: req.query.symbol,
+    q: req.query.q,
+    source: req.query.source,
+    event_type: req.query.event_type,
+    source_tier: req.query.source_tier,
+    verification_state: req.query.verification_state,
+    min_materiality: req.query.min_materiality,
+    catalyst_only: req.query.catalyst_only,
+    page_size: req.query.page_size,
+    cursor: req.query.cursor
+  };
+
+  let result;
+  try {
+    result = await queryEvents(opts);
+  } catch (error) {
+    logger.error('[MARKET] events query error: ' + error.message);
+    return res.status(500).json({ error: 'Event query failed' });
+  }
+
+  // Score + categorize each event (server-side, deterministic)
+  const events = result.events.map((e) => ({
+    ...e,
+    score: scoreEvent(e),
+    category: categorize(e)
+  }));
+
+  return res.json({
+    events,
+    next_cursor: result.next_cursor,
+    count: result.count
+  });
+}
+
+// GET /api/market/events/:symbol
+async function getSymbolEvents(req, res) {
+  const symbol = parseToken(req.params.symbol, 20);
+  if (!symbol) return res.status(400).json({ error: 'Invalid symbol' });
+  const limit = parseLimit(req.query.limit);
+  let events;
+  try {
+    events = await getEventsForSymbol(symbol, limit);
+  } catch (error) {
+    logger.error('[MARKET] symbol events error: ' + error.message);
+    return res.status(500).json({ error: 'Symbol events query failed' });
+  }
+  const scored = events.map((e) => ({
+    ...e,
+    score: scoreEvent(e),
+    category: categorize(e)
+  }));
+  return res.json({ symbol, events: scored, count: scored.length });
+}
+
+// GET /api/market/sources — source health/enablement
+async function getSources(req, res) {
+  const sources = listSources();
+  let schedulerEnabled = false;
+  let schedulerStatus = null;
+  try {
+    schedulerEnabled = isIntelSchedulerEnabled();
+    if (schedulerEnabled) {
+      schedulerStatus = await SchedulerStatusService.get(INTEL_SCHEDULER_NAME);
+    }
+  } catch (err) {
+    logger.warn('[MARKET] intel scheduler status failed: ' + err.message);
+  }
+  return res.json({
+    sources,
+    scheduler_enabled: schedulerEnabled,
+    scheduler_status: schedulerStatus
+  });
+}
+
 module.exports = {
   getIndices: asyncHandler(getIndices),
   getHalts: asyncHandler(getHalts),
@@ -923,5 +1081,8 @@ module.exports = {
   getMovers: asyncHandler(getMovers),
   getScanner: asyncHandler(getScanner),
   getRelationships: asyncHandler(getRelationships),
-  getCandles: asyncHandler(getCandles)
+  getCandles: asyncHandler(getCandles),
+  getEvents: asyncHandler(getEvents),
+  getSymbolEvents: asyncHandler(getSymbolEvents),
+  getSources: asyncHandler(getSources)
 };

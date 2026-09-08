@@ -34,6 +34,33 @@
         <input type="checkbox" v-model="filters.exclude_penny" @change="applyFilters" class="rounded" />
         Exclude penny stocks
       </label>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600 dark:text-gray-400">Price range</label>
+        <select v-model="filters.price_preset" @change="applyFilters" class="filter-input w-32">
+          <option value="">Any</option>
+          <option v-for="p in pricePresets" :key="p.id" :value="p.id">{{ p.label }}</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600 dark:text-gray-400">Min RVOL</label>
+        <input v-model.number="filters.min_rvol" @change="applyFilters" type="number" min="0" step="0.5"
+          class="filter-input w-20" />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600 dark:text-gray-400">Min gap %</label>
+        <input v-model.number="filters.min_gap" @change="applyFilters" type="number" min="0" step="0.5"
+          class="filter-input w-20" />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600 dark:text-gray-400">Market cap</label>
+        <select v-model="filters.market_cap" @change="applyFilters" class="filter-input w-28">
+          <option value="">Any</option>
+          <option value="micro">Micro</option>
+          <option value="small">Small</option>
+          <option value="mid">Mid</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -104,6 +131,18 @@
 
         <!-- Expanded details -->
         <div v-if="expanded.has(c.symbol)" class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 space-y-3">
+          <!-- Opportunity score -->
+          <div v-if="c.opportunity_score != null" class="text-xs">
+            <p class="text-gray-500 dark:text-gray-400 font-medium">
+              Opportunity score {{ c.opportunity_score }}/100
+            </p>
+            <p v-if="c.opportunity_factors" class="text-gray-500 dark:text-gray-400 mt-0.5">
+              gap {{ c.opportunity_factors.gap_pct ?? '—' }} · rvol {{ c.opportunity_factors.rvol ?? '—' }} ·
+              vol {{ c.opportunity_factors.volume ?? '—' }} · liq {{ c.opportunity_factors.liquidity ?? '—' }} ·
+              catalyst {{ c.opportunity_factors.catalyst_strength ?? '—' }} ·
+              setup {{ c.opportunity_factors.technical_setup ?? '—' }}
+            </p>
+          </div>
           <!-- Why classified -->
           <div v-if="c.avoid_reason || c.avoid_chasing_reason || c.best_setup" class="text-xs">
             <p class="text-gray-500 dark:text-gray-400 font-medium">Why {{ c.classification }}:</p>
@@ -207,8 +246,22 @@ const expanded = reactive(new Set())
 
 const filters = reactive({
   min_score: 40,
-  exclude_penny: true
+  exclude_penny: true,
+  price_preset: '',
+  min_rvol: null,
+  min_gap: null,
+  market_cap: ''
 })
+
+const pricePresets = [
+  { id: 'under_5', label: 'Under $5' },
+  { id: '5_10', label: '$5 - $10' },
+  { id: '5_20', label: '$5 - $20' },
+  { id: '10_20', label: '$10 - $20' },
+  { id: '20_50', label: '$20 - $50' },
+  { id: '50_100', label: '$50 - $100' },
+  { id: '100_plus', label: '$100+' }
+]
 
 const sessionClassMap = {
   premarket: { badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', dot: 'bg-blue-500' },
@@ -232,6 +285,10 @@ async function fetchScanner() {
   error.value = null
   try {
     const params = { limit: 100, min_score: filters.min_score, exclude_penny: String(filters.exclude_penny) }
+    if (filters.price_preset) params.price_preset = filters.price_preset
+    if (filters.min_rvol != null && filters.min_rvol !== '') params.min_rvol = filters.min_rvol
+    if (filters.min_gap != null && filters.min_gap !== '') params.min_gap = filters.min_gap
+    if (filters.market_cap) params.market_cap = filters.market_cap
     const { data } = await api.get('/market/scanner', { params })
     candidates.value = data.candidates || []
     sessionLabel.value = data.session_label || data.session || ''

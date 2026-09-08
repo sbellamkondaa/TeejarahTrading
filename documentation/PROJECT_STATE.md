@@ -807,6 +807,100 @@ Current safety defaults:
       - fast-review: no critical findings; fixed latent stop partial-fill
         release gap.
 
+  7f. Market Intelligence V2 + Advanced Movers Scanner + PAPER AI/MCP Sandbox ← COMPLETED
+      - Migration 270: `market_events` + `market_event_symbols` +
+        `market_event_source_health` (additive, non-destructive). Persistent
+        normalized event store with source metadata, classification,
+        materiality, verification state, dedup keys, canonical primary-source
+        linking, and symbol links. No copyrighted article bodies stored —
+        only headlines/short permitted summaries/source URLs/structured
+        event facts.
+      - Event pipeline: deterministic normalize → classify → rank → dedup →
+        persist. 30 event types (EARNINGS, GUIDANCE, FDA, SEC_MATERIAL,
+        OFFERING, ATM, S3, 424B5, DILUTION, MERGER_ACQUISITION, HALT, RESUMPTION,
+        MACRO_FED, INSIDER, ANALYST_*, etc.). 6 source tiers (PRIMARY,
+        HIGH_QUALITY_SECONDARY, AGGREGATOR, SOCIAL_VERIFIED,
+        SOCIAL_UNVERIFIED, OPINION). Verification states (UNVERIFIED →
+        CORROBORATED → VERIFIED). Primary-source canonical preference with
+        corroboration upgrading.
+      - Source adapters (fail-isolated; broken source never breaks scanner):
+          - finnhubNewsSource — reuses finnhub.getCompanyNews (ENABLED)
+          - secEventSource — reads existing sec_filings table (ENABLED)
+          - nasdaqHaltSource — reads existing market_halts table (ENABLED)
+          - xApiSource — OFFICIAL X API ONLY; gracefully disabled when
+            X_API_BEARER_TOKEN absent or ENABLE_X_API_SOURCE=false (DISABLED)
+          - blueskySource — public Bluesky API; opt-in
+            (ENABLE_BLUESKY_SOURCE=false default; DISABLED)
+          - rssSource — public RSS feeds; opt-in via RSS_FEEDS env
+            (DISABLED by default)
+      - Worker scheduler: `marketIntelligenceScheduler.js` — opt-in
+        (ENABLE_MARKET_INTELLIGENCE_SCHEDULER=false default), 120s min
+        interval, reuses IntervalScheduler overlap guard +
+        SchedulerStatusService freshness. Wired in server.js worker role
+        only; stop hooks added.
+      - Query API: `GET /api/market/events` — cursor pagination, presets
+        (1h/4h/24h/today/7d), symbol, headline free-text, source, event_type,
+        source_tier, min_materiality, catalyst_only, scanner_symbols,
+        verification_state filters. `GET /api/market/events/:symbol` for the
+        workstation panel. `GET /api/market/sources` — source health/enablement
+        + scheduler status. Events scored + categorized (BREAKING, CATALYST,
+        MARKET_MACRO, SCANNER_RELATED, ALL_NEWS, OPINION_LOW).
+      - Advanced scanner filters: price presets (under_$5, $5_10, $5_20,
+        $10_20, $20_50, $50_100, $100_plus), market cap (micro/small/mid/
+        large), min_gap, max_gap, min_rvol, min_volume, min_dollar_volume,
+        max_spread, exclude_otc. Default project safety preserved: sub-$5
+        excluded by default; flagged speculative/penny status prominently.
+      - Deterministic opportunity score (0-100) with explainable factor
+        breakdown (gap, rvol, volume, liquidity, catalyst_strength,
+        technical_setup, relative_strength). Unknowns stay unknown — no
+        invented values. No mega-cap bias from headline count.
+      - PAPER AI advisory: `advisoryService.js` + `advisoryCache.js`.
+        PAPER/sandbox only. Bounded to MAX_CANDIDATES=5 per invocation.
+        Compact structured JSON; null/unneeded fields stripped. Redis-cached
+        keyed by content hash of candidate + event snapshot + mode (10-min
+        TTL). No re-run when data materially unchanged. Uses cheap
+        OpenRouter model (env-configured) by default; no premium model
+        automatically. Output distinguishes FACTS / DETERMINISTIC_METRICS /
+        EMPIRICAL_STATS / AI_INTERPRETATION / UNVERIFIED_INFORMATION. Cannot
+        bypass risk, place orders, alter approved proposals, or treat social
+        rumors as verified. API: `POST /api/market/advisory`,
+        `GET /api/market/advisory/status`.
+      - Teejarah MCP sandbox server (`teejarahMcpServer.js`) — PAPER-only,
+        auth-gated, internal-bind. 18 tools registered:
+          Read-only: get_market_overview, get_movers, search_market_events,
+          get_symbol_events, get_quotes, get_price_history,
+          get_scanner_results, analyze_symbol, get_sources, get_trade_proposal,
+          get_risk_evaluation, get_empirical_stats, get_journal,
+          get_paper_account, get_paper_positions, get_paper_orders, run_backtest.
+          PAPER write (reuse existing approval + risk gate):
+          request_paper_trade, approve_paper_trade.
+        NOT registered (safety): place_live_order, cancel_live_order,
+        approve_live_order. Hard-denied at both invokeTool and MCP controller.
+        API: `GET /api/mcp/tools`, `POST /api/mcp/invoke`.
+      - Frontend: new `MarketIntelligenceView.vue` at `/market/intelligence`
+        with sidebar link — persistent searchable events with cursor
+        pagination, all filters, source-health badges, materiality/score
+        display, click-through to workstation. TradingWorkstationView gains
+        an "Events" tab showing per-symbol persisted events (PRIMARY/
+        UNVERIFIED/CORROBORATED badges). ScannerView gains price-preset,
+        min_rvol, min_gap, market_cap filters + opportunity-score breakdown.
+      - Tests: 43 new focused tests (marketIntelligence: normalization, dedup
+        key stability, classifier rules, ranker categories, opportunity score
+        + $5-$20 isolation, sub-$5 safety, rvol/gap filters; sourceRegistry:
+        X graceful disable, fetchRecent no-op, Bluesky/RSS default off,
+        broken-source isolation; mcpServer: no live-order tool registered,
+        hard-deny live-order names, approve_paper_trade requires userId,
+        request_paper_trade reuses proposal gating; advisoryService: cache
+        determinism, disabled-when-no-key, bounded candidates, advisory-only
+        output). Existing catalyst/paperBroker/riskEngine/trading.routes
+        suites still pass (172 tests total). Frontend build clean.
+      - fast-review: completed once; fixed 2 HIGH findings (RSS
+        non-deterministic source_event_id → content-hash; SQL interval
+        string concat → make_interval). LIVE trading flags remain false.
+      - Documentation: `documentation/MCP_SCHWAB_GAP_ANALYSIS.md` records
+        schwab-mcp concept review, MIT attribution, what was/was not
+        integrated, and future Schwab live work.
+
   8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management

@@ -20,18 +20,24 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getFilings: jest.fn(),
   getMovers: jest.fn(),
   getScanner: jest.fn(),
-  getRelationships: jest.fn()
+  getRelationships: jest.fn(),
+  getCandles: jest.fn(),
+  getEvents: jest.fn(),
+  getSymbolEvents: jest.fn(),
+  getSources: jest.fn()
 }));
 
 const express = require('express');
 
-// Capture router.use / router.get calls in a fake router.
+// Capture router.use / router.get / router.post calls in a fake router.
 const useCalls = [];
 const getCalls = [];
+const postCalls = [];
 
 jest.spyOn(express, 'Router').mockImplementation(() => ({
   use: (...args) => { useCalls.push(args); },
-  get: (...args) => { getCalls.push(args); }
+  get: (...args) => { getCalls.push(args); },
+  post: (...args) => { postCalls.push(args); }
 }));
 
 const marketRoutes = require('../../src/routes/market.routes');
@@ -43,16 +49,16 @@ describe('market.routes wiring', () => {
     expect(useCalls[0][0]).toBe(authenticate);
   });
 
-  test('all 8 GET endpoints are registered (read-only)', () => {
+  test('all GET endpoints are registered', () => {
     const paths = getCalls.map((args) => args[0]);
-    expect(paths.sort()).toEqual(['/earnings', '/filings', '/halts', '/indices', '/movers', '/news', '/relationships/:symbol', '/scanner']);
+    const expected = ['/advisory/status', '/candles', '/earnings', '/events', '/events/:symbol', '/filings', '/halts',
+      '/indices', '/movers', '/news', '/relationships/:symbol', '/scanner', '/sources'];
+    expect(paths.sort()).toEqual(expected.sort());
   });
 
-  test('no mutating routes are registered (only GET)', () => {
-    // The fake router only exposes use/get; if market.routes.js had called
-    // post/put/delete they would throw here. The get-only assertions above
-    // confirm read-only.
-    expect(getCalls.length).toBe(8);
+  test('POST /advisory is registered (auth-gated)', () => {
+    const paths = postCalls.map((args) => args[0]);
+    expect(paths).toEqual(['/advisory']);
   });
 
   test('authenticate rejects without a session (401)', () => {

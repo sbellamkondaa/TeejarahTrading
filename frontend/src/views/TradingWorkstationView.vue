@@ -161,6 +161,23 @@
                 <p class="text-gray-500 dark:text-gray-400 line-clamp-1">{{ n.summary }}</p>
               </div>
             </div>
+            <!-- Events tab (persistent market_events store) -->
+            <div v-else-if="activeTab === 'events'" class="space-y-2">
+              <div v-if="eventsLoading" class="text-xs text-gray-400">Loading…</div>
+              <div v-else-if="symbolEvents.length === 0" class="text-xs text-gray-400">No events for this symbol</div>
+              <div v-for="e in symbolEvents" :key="e.id" class="text-xs">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="px-1 rounded font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">{{ e.event_type.replace(/_/g, ' ') }}</span>
+                  <span v-if="e.source_tier === 'PRIMARY'" class="px-1 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">PRIMARY</span>
+                  <span v-else-if="e.source_tier === 'SOCIAL_UNVERIFIED'" class="px-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">UNVERIFIED</span>
+                  <span v-else-if="e.verification_state === 'CORROBORATED'" class="px-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">CORROBORATED</span>
+                  <span class="text-gray-400">{{ e.source }}</span>
+                  <span class="text-gray-400 ml-auto">M{{ e.materiality }} · {{ formatDate(e.published_at) }}</span>
+                </div>
+                <p class="text-gray-700 dark:text-gray-300 font-medium mt-0.5">{{ e.headline }}</p>
+                <p v-if="e.summary" class="text-gray-500 dark:text-gray-400 line-clamp-2">{{ e.summary }}</p>
+              </div>
+            </div>
             <!-- Catalysts tab -->
             <div v-else-if="activeTab === 'catalysts'" class="space-y-1">
               <div v-if="!selectedCandidate || !selectedCandidate.catalyst_evidence || selectedCandidate.catalyst_evidence.length === 0" class="text-xs text-gray-400">No catalysts</div>
@@ -456,6 +473,8 @@ let fetchAbortController = null
 
 const news = ref([])
 const newsLoading = ref(false)
+const symbolEvents = ref([])
+const eventsLoading = ref(false)
 const secFilings = ref([])
 const secLoading = ref(false)
 
@@ -466,6 +485,7 @@ const sessionDotClass = ref('')
 const activeTab = ref('news')
 const tabs = [
   { key: 'news', label: 'News' },
+  { key: 'events', label: 'Events' },
   { key: 'catalysts', label: 'Catalysts' },
   { key: 'sec', label: 'SEC' },
   { key: 'fundamentals', label: 'Fund' },
@@ -583,6 +603,7 @@ function selectSymbol(candidate) {
   fetchQuote()
   fetchChart()
   fetchNews()
+  fetchSymbolEvents()
   fetchSEC()
   findProposalForSymbol()
 }
@@ -634,6 +655,19 @@ async function fetchNews() {
     news.value = []
   } finally {
     newsLoading.value = false
+  }
+}
+
+async function fetchSymbolEvents() {
+  if (!selectedSymbol.value) return
+  eventsLoading.value = true
+  try {
+    const { data } = await api.get(`/market/events/${selectedSymbol.value}`, { params: { limit: 20 } })
+    symbolEvents.value = data.events || []
+  } catch {
+    symbolEvents.value = []
+  } finally {
+    eventsLoading.value = false
   }
 }
 

@@ -69,6 +69,7 @@ const propFirmRoutes = require('./routes/propFirm.routes');
 const marketRiskRoutes = require('./routes/marketRisk.routes');
 const marketRoutes = require('./routes/market.routes');
 const tradingRoutes = require('./routes/trading.routes');
+const mcpRoutes = require('./routes/mcp.routes');
 const widgetRoutes = require('./routes/widget.routes');
 const BillingService = require('./services/billingService');
 const priceMonitoringService = require('./services/priceMonitoringService');
@@ -96,6 +97,7 @@ const engagementScheduler = require('./services/engagementScheduler');
 const secIngestionScheduler = require('./services/sec/secIngestionScheduler');
 const nasdaqHaltScheduler = require('./services/nasdaq/nasdaqHaltScheduler');
 const paperReconciliationScheduler = require('./services/trading/paperReconciliationScheduler');
+const marketIntelligenceScheduler = require('./services/marketIntelligence/marketIntelligenceScheduler');
 const activityTrackingMiddleware = require('./middleware/activityTracking');
 const emailTrackingRoutes = require('./routes/emailTracking.routes');
 const backgroundWorker = require('./workers/backgroundWorker');
@@ -323,6 +325,7 @@ app.use('/api/prop-firm', propFirmRoutes);
 app.use('/api/market-risk', marketRiskRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/trading', tradingRoutes);
+app.use('/api/mcp', mcpRoutes);
 app.use('/api/widgets', widgetRoutes);
 
 // OAuth2 Provider endpoints
@@ -830,6 +833,18 @@ function scheduleBackgroundServices(backgroundJobsDisabled) {
     console.log('Paper reconciliation scheduler disabled (ENABLE_PAPER_RECONCILIATION=false)');
   }
 
+  if (backgroundJobsDisabled) {
+    console.log('Market intelligence scheduler disabled (DISABLE_BACKGROUND_JOBS=true)');
+  } else if (process.env.ENABLE_MARKET_INTELLIGENCE_SCHEDULER === 'true') {
+    defer('market-intelligence-scheduler', () => {
+      console.log('Starting Market intelligence scheduler...');
+      marketIntelligenceScheduler.start();
+      console.log('[SUCCESS] Market intelligence scheduler started');
+    });
+  } else {
+    console.log('Market intelligence scheduler disabled (ENABLE_MARKET_INTELLIGENCE_SCHEDULER=false)');
+  }
+
   if (process.env.ENABLE_PUSH_NOTIFICATIONS === 'true') {
     console.log('Push notification service loaded');
   } else {
@@ -1039,6 +1054,7 @@ process.on('SIGTERM', async () => {
   watchlistPillarsScheduler.stop();
   nasdaqHaltScheduler.stop();
   paperReconciliationScheduler.stop();
+  marketIntelligenceScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);
@@ -1068,6 +1084,7 @@ process.on('SIGINT', async () => {
   watchlistPillarsScheduler.stop();
   nasdaqHaltScheduler.stop();
   paperReconciliationScheduler.stop();
+  marketIntelligenceScheduler.stop();
   await backgroundWorker.stop();
   await shutdownPostHogTelemetry();
   process.exit(0);
