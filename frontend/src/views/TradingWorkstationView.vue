@@ -110,6 +110,7 @@
                 <div class="flex items-center gap-1">
                   <span v-if="c.classification" class="text-[10px] px-1 rounded font-medium"
                     :class="classificationClass(c.classification)">{{ c.classification }}</span>
+                  <span v-if="c.rvol != null" class="text-[10px] text-gray-500 dark:text-gray-400">RVOL {{ c.rvol.toFixed(1) }}x</span>
                 </div>
               </div>
               <div v-if="c.setups && c.setups.length" class="flex flex-wrap gap-0.5 mt-1">

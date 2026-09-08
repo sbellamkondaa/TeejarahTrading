@@ -415,30 +415,19 @@ function scanCandidates(candidates, options = {}) {
   for (const candidate of candidates) {
     const price = candidate.indicators?.last_price ?? candidate.last_price;
 
-    // Penny-stock policy: exclude sub-$5 by default
+    // Penny-stock policy: when excludePennyStocks=true, candidates with
+    // price < $5 that do NOT qualify for a catalyst exception are EXCLUDED
+    // from results entirely (not included as AVOID). Candidates that DO
+    // qualify for the exception are labeled SPECULATIVE / PENNY_CATALYST_EXCEPTION.
     if (excludePennyStocks && price && price < 5) {
       const exception = checkPennyStockException(candidate);
       if (!exception.allowed) {
-        // Classify as AVOID — include in results with a flag but don't rank
-        results.push({
-          symbol: candidate.symbol,
-          company_name: candidate.company_name ?? candidate.indicators?.company_name,
-          last_price: price,
-          change_percent: candidate.indicators?.change_percent ?? candidate.change_percent,
-          gap_pct: candidate.indicators?.gap_pct,
-          rvol: candidate.indicators?.rvol,
-          halted: candidate.halted,
-          catalysts: candidate.catalysts || [],
-          setups: [],
-          best_setup: null,
-          composite_score: 0,
-          classification: 'AVOID',
-          avoid_reason: exception.reason,
-          liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
-          session: candidate.session
-        });
+        // Excluded — do not include in results at all
         continue;
       }
+      // Exception allowed — mark as speculative but include in results
+      // The candidate continues through normal scoring below, but is labeled.
+      candidate._penny_exception = true;
     }
 
     // Dilution risk: use the engine's level when provided (candidate.dilution_risk),
@@ -479,7 +468,9 @@ function scanCandidates(candidates, options = {}) {
 
     // Classification
     let classification;
-    if (dilutionLevel === 'HIGH') {
+    if (candidate._penny_exception) {
+      classification = 'SPECULATIVE';
+    } else if (dilutionLevel === 'HIGH') {
       // High dilution risk blocks TRADE even with a strong catalyst
       classification = 'WATCH';
       if (evaluation.best_setup) {
@@ -500,6 +491,9 @@ function scanCandidates(candidates, options = {}) {
       change_percent: changePct,
       gap_pct: candidate.indicators?.gap_pct,
       rvol: candidate.indicators?.rvol,
+      rvol_status: candidate.indicators?.rvol_status || (candidate.indicators?.rvol != null ? 'CALCULATED' : 'UNKNOWN'),
+      rvol_method: candidate.indicators?.rvol_method || null,
+      rvol_as_of: candidate.indicators?.rvol_as_of || null,
       vwap: candidate.indicators?.vwap,
       trend_regime: candidate.indicators?.trend_regime,
       halted: candidate.halted,
@@ -511,6 +505,7 @@ function scanCandidates(candidates, options = {}) {
       dilution_reasons: dilutionFilings,
       classification,
       avoid_chasing_reason: avoidChasingReason,
+      penny_exception: Boolean(candidate._penny_exception),
       liquidity_rating: candidate.indicators?.liquidity?.liquidity_rating,
       session: candidate.session
     });

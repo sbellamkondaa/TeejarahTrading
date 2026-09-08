@@ -35,11 +35,16 @@ function scoreOpportunity(candidate) {
   if (gap == null) factors.gap_pct_unknown = true;
   score += factors.gap_pct;
 
-  // rvol (0-20): RVOL>=4 = full
+  // rvol (0-20): RVOL>=4 = full. Missing rvol is NEVER converted to 0 —
+  // it stays null and the factor is excluded from the score (unknown flag set).
   const rvol = isNum(candidate.rvol) ? Number(candidate.rvol) : null;
-  factors.rvol = rvol != null ? Math.min(20, Math.round((rvol / 4) * 20)) : 0;
-  if (rvol == null) factors.rvol_unknown = true;
-  score += factors.rvol;
+  if (rvol != null) {
+    factors.rvol = Math.min(20, Math.round((rvol / 4) * 20));
+  } else {
+    factors.rvol = null;
+    factors.rvol_unknown = true;
+  }
+  score += factors.rvol || 0;
 
   // volume (0-10): volume >= 5M = full
   const volume = isNum(candidate.volume) ? Number(candidate.volume) : null;
@@ -89,6 +94,10 @@ function applyDiscoveryFilters(candidates, filters = {}) {
   const maxSpread = numOrNull(filters.max_spread);
   const excludeOtc = String(filters.exclude_otc ?? 'true').toLowerCase() !== 'false';
   const marketCap = filters.market_cap ? String(filters.market_cap).toLowerCase() : null;
+  // When min_rvol is set, candidates with UNKNOWN rvol are included by default
+  // (discovery mode) so breaking stocks without historical data are not hidden.
+  // Set include_unknown_rvol=false to exclude them (stricter validation mode).
+  const includeUnknownRvol = String(filters.include_unknown_rvol ?? 'true').toLowerCase() !== 'false';
 
   return candidates.filter((c) => {
     const price = c.last_price ?? c.indicators?.last_price;
@@ -100,7 +109,14 @@ function applyDiscoveryFilters(candidates, filters = {}) {
     if (maxGap != null && (gap == null || Math.abs(gap) > maxGap)) return false;
 
     const rvol = c.rvol ?? c.indicators?.rvol;
-    if (minRvol != null && (rvol == null || rvol < minRvol)) return false;
+    if (minRvol != null) {
+      if (rvol == null) {
+        // UNKNOWN rvol — include by default in discovery mode, exclude in strict mode
+        if (!includeUnknownRvol) return false;
+      } else if (rvol < minRvol) {
+        return false;
+      }
+    }
 
     const volume = c.volume ?? c.indicators?.volume;
     if (minVolume != null && (volume == null || volume < minVolume)) return false;

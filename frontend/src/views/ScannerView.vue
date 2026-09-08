@@ -41,6 +41,10 @@
           class="filter-input w-20" />
       </div>
       <label class="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+        <input type="checkbox" v-model="filters.include_unknown_rvol" @change="applyFilters" class="rounded" />
+        Include unknown RVOL
+      </label>
+      <label class="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
         <input type="checkbox" v-model="filters.exclude_penny" @change="applyFilters" class="rounded" />
         Exclude penny stocks
       </label>
@@ -97,6 +101,18 @@
       <span v-if="universeAsOf" class="ml-1 text-amber-600 dark:text-amber-400">(snapshot {{ new Date(universeAsOf).toLocaleString() }})</span>
     </div>
 
+    <!-- Filter diagnostics -->
+    <div v-if="diagnostics" class="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
+      <span>Universe {{ diagnostics.universe_count }}</span>
+      <span v-if="diagnostics.penny_filtered > 0" class="text-amber-600 dark:text-amber-400">Penny excluded {{ diagnostics.penny_filtered }}</span>
+      <span v-if="diagnostics.price_filtered > 0">Price filtered {{ diagnostics.price_filtered }}</span>
+      <span v-if="diagnostics.gap_filtered > 0">Gap filtered {{ diagnostics.gap_filtered }}</span>
+      <span v-if="diagnostics.rvol_filtered > 0">RVOL below threshold {{ diagnostics.rvol_filtered }}</span>
+      <span v-if="diagnostics.rvol_unknown > 0">RVOL unknown {{ diagnostics.rvol_unknown }}</span>
+      <span v-if="diagnostics.other_filtered > 0">Other filtered {{ diagnostics.other_filtered }}</span>
+      <span class="font-medium text-gray-700 dark:text-gray-300">Results {{ diagnostics.result_count }}</span>
+    </div>
+
     <!-- Candidates -->
     <div v-else class="mt-4 space-y-3">
       <div v-for="c in candidates" :key="c.symbol"
@@ -142,6 +158,12 @@
             <div v-if="c.gap_pct != null" class="text-xs text-mono-num text-gray-500 dark:text-gray-400">
               Gap {{ c.gap_pct >= 0 ? '+' : '' }}{{ formatPercent(c.gap_pct) }}
             </div>
+            <div v-if="c.rvol != null" class="text-xs text-mono-num text-gray-500 dark:text-gray-400">
+              RVOL {{ c.rvol.toFixed(1) }}x
+            </div>
+            <div v-else class="text-xs text-gray-400 dark:text-gray-500">
+              RVOL Unknown
+            </div>
             <div class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
               {{ expanded.has(c.symbol) ? '▲ less' : '▼ more' }}
             </div>
@@ -156,10 +178,13 @@
               Opportunity score {{ c.opportunity_score }}/100
             </p>
             <p v-if="c.opportunity_factors" class="text-gray-500 dark:text-gray-400 mt-0.5">
-              gap {{ c.opportunity_factors.gap_pct ?? '—' }} · rvol {{ c.opportunity_factors.rvol ?? '—' }} ·
+              gap {{ c.opportunity_factors.gap_pct ?? '—' }} · rvol {{ c.opportunity_factors.rvol ?? '—' }}{{ c.opportunity_factors.rvol_unknown ? ' (unknown)' : '' }} ·
               vol {{ c.opportunity_factors.volume ?? '—' }} · liq {{ c.opportunity_factors.liquidity ?? '—' }} ·
               catalyst {{ c.opportunity_factors.catalyst_strength ?? '—' }} ·
               setup {{ c.opportunity_factors.technical_setup ?? '—' }}
+            </p>
+            <p v-if="c.rvol_method" class="text-gray-400 dark:text-gray-500 mt-0.5">
+              RVOL method: {{ c.rvol_method }} · status: {{ c.rvol_status }}
             </p>
           </div>
           <!-- Why classified -->
@@ -265,11 +290,13 @@ const universeSource = ref('schwab_movers')
 const universeAsOf = ref(null)
 const fallbackNote = ref(null)
 const sessionFilter = ref('auto')
+const diagnostics = ref(null)
 const expanded = reactive(new Set())
 
 const filters = reactive({
   min_score: 40,
   exclude_penny: true,
+  include_unknown_rvol: true,
   price_preset: '',
   min_rvol: null,
   min_gap: null,
@@ -313,6 +340,10 @@ async function fetchScanner() {
     if (filters.min_rvol != null && filters.min_rvol !== '') params.min_rvol = filters.min_rvol
     if (filters.min_gap != null && filters.min_gap !== '') params.min_gap = filters.min_gap
     if (filters.market_cap) params.market_cap = filters.market_cap
+    if (filters.min_rvol != null && filters.min_rvol !== '') {
+      params.min_rvol = filters.min_rvol
+      params.include_unknown_rvol = String(filters.include_unknown_rvol)
+    }
     const { data } = await api.get('/market/scanner', { params })
     candidates.value = data.candidates || []
     sessionLabel.value = data.session_label || data.session || ''
@@ -321,6 +352,7 @@ async function fetchScanner() {
     universeSource.value = data.universe_source || 'schwab_movers'
     universeAsOf.value = data.universe_as_of || null
     fallbackNote.value = data.fallback_note || null
+    diagnostics.value = data.diagnostics || null
   } catch (err) {
     error.value = err?.response?.data?.error || err?.message || 'Request failed'
     candidates.value = []

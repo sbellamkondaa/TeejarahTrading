@@ -21,6 +21,7 @@ const {
   PRICE_PRESETS
 } = require('../services/marketIntelligence/opportunityScore');
 const scannerUniverseSnapshot = require('../services/marketIntelligence/scannerUniverseSnapshot');
+const { batchCalculateRvol } = require('../utils/rvolCalculator');
 const {
   isSchedulerEnabled: isIntelSchedulerEnabled,
   SCHEDULER_NAME: INTEL_SCHEDULER_NAME
@@ -731,7 +732,8 @@ async function getScanner(req, res) {
     min_dollar_volume: req.query.min_dollar_volume,
     max_spread: req.query.max_spread,
     market_cap: req.query.market_cap,
-    exclude_otc: req.query.exclude_otc
+    exclude_otc: req.query.exclude_otc,
+    include_unknown_rvol: req.query.include_unknown_rvol ?? 'true'
   };
   if (req.query.price_preset) {
     const preset = PRICE_PRESETS.find((p) => p.id === req.query.price_preset);
@@ -840,18 +842,25 @@ async function getScanner(req, res) {
       last_price: lastPrice,
       change_percent: changePercent,
       gap_pct: gapPct,
-      rvol: null, // requires intraday candle data not available here
+      rvol: null, // calculated below via batchCalculateRvol for top candidates
+      rvol_status: 'UNKNOWN',
+      rvol_method: null,
+      rvol_as_of: null,
       volume: item.volume,
+      total_volume: item.total_volume,
       halted: false,
       catalysts: [],
       session: effectiveSession,
-      stale: !hasLiveQuote, // fallback symbol with no current quote → STALE
+      stale: !hasLiveQuote,
       indicators: {
         last_price: lastPrice,
         previous_close: previousClose,
         gap_pct: gapPct,
         change_percent: changePercent,
         rvol: null,
+        rvol_status: 'UNKNOWN',
+        rvol_method: null,
+        rvol_as_of: null,
         vwap: null,
         vwap_distance: null,
         trend_regime: 'insufficient_data',
@@ -896,13 +905,26 @@ async function getScanner(req, res) {
 
   // Fundamental profiles + dilution risk for scanner candidates (top N by rough volume)
   const fundamentalSymbols = candidates.slice(0, 20).map((c) => c.symbol);
-  const [fundamentalMap, dilutionMap] = await Promise.all([
+  const [fundamentalMap, dilutionMap, rvolMap] = await Promise.all([
     buildFundamentalProfiles(fundamentalSymbols).catch(() => ({})),
-    assessDilutionRisk(fundamentalSymbols).catch(() => ({}))
+    assessDilutionRisk(fundamentalSymbols).catch(() => ({})),
+    batchCalculateRvol(candidates).catch(() => new Map())
   ]);
   candidates.forEach((c) => {
     c.fundamental_summary = fundamentalMap[c.symbol] || null;
     c.dilution_risk = dilutionMap[c.symbol] || null;
+    // Apply calculated RVOL to candidate + indicators
+    const rvolData = rvolMap.get(c.symbol);
+    if (rvolData && rvolData.rvol != null) {
+      c.rvol = rvolData.rvol;
+      c.rvol_status = rvolData.rvol_status;
+      c.rvol_method = rvolData.rvol_method;
+      c.rvol_as_of = rvolData.rvol_as_of;
+      c.indicators.rvol = rvolData.rvol;
+      c.indicators.rvol_status = rvolData.rvol_status;
+      c.indicators.rvol_method = rvolData.rvol_method;
+      c.indicators.rvol_as_of = rvolData.rvol_as_of;
+    }
   });
 
   // Run deterministic scanner
@@ -945,7 +967,66 @@ async function getScanner(req, res) {
   }
 
   // Apply discovery filters post-scan (price presets, gap, rvol, volume, market cap)
+  // Compute filter diagnostics so "No candidates" states are explainable.
+  const universeCount = results.length;
+  const minPriceFilter = discoveryFilters.min_price != null ? Number(discoveryFilters.min_price) : null;
+  const maxPriceFilter = discoveryFilters.max_price != null ? Number(discoveryFilters.max_price) : null;
+  const minGapFilter = discoveryFilters.min_gap != null ? Number(discoveryFilters.min_gap) : null;
+  const minRvolFilter = discoveryFilters.min_rvol != null ? Number(discoveryFilters.min_rvol) : null;
+  const minVolumeFilter = discoveryFilters.min_volume != null ? Number(discoveryFilters.min_volume) : null;
+
+  let pennyFiltered = 0;
+  let priceFiltered = 0;
+  let gapFiltered = 0;
+  let rvolFiltered = 0;
+  let rvolUnknown = 0;
+  let otherFiltered = 0;
+
+  for (const r of results) {
+    const price = r.last_price;
+    // Penny exclusion (sub-$5 without exception) — already excluded by
+    // scanCandidates, but count any that slipped through (e.g. fallback)
+    if (excludePennyStocks && price != null && price < 5 && !r.penny_exception) {
+      pennyFiltered++;
+      continue;
+    }
+    // Price range
+    if (minPriceFilter != null && (price == null || price < minPriceFilter)) { priceFiltered++; continue; }
+    if (maxPriceFilter != null && (price == null || price > maxPriceFilter)) { priceFiltered++; continue; }
+    // Gap
+    if (minGapFilter != null) {
+      const gap = r.gap_pct;
+      if (gap == null || Math.abs(gap) < minGapFilter) { gapFiltered++; continue; }
+    }
+    // RVOL
+    if (minRvolFilter != null) {
+      const rvol = r.rvol;
+      if (rvol == null) {
+        rvolUnknown++;
+        if (String(discoveryFilters.include_unknown_rvol ?? 'true').toLowerCase() === 'false') { rvolFiltered++; continue; }
+      } else if (rvol < minRvolFilter) {
+        rvolFiltered++; continue;
+      }
+    }
+    // Volume
+    if (minVolumeFilter != null) {
+      const vol = r.volume ?? r.indicators?.volume;
+      if (vol == null || vol < minVolumeFilter) { otherFiltered++; continue; }
+    }
+  }
+
   const filteredResults = applyDiscoveryFilters(results, discoveryFilters);
+
+  const diagnostics = {
+    universe_count: universeCount,
+    price_filtered: priceFiltered,
+    penny_filtered: pennyFiltered,
+    gap_filtered: gapFiltered,
+    rvol_filtered: rvolFiltered,
+    rvol_unknown: rvolUnknown,
+    other_filtered: otherFiltered,
+    result_count: filteredResults.length
+  };
 
   // Fetch extended index quotes for market context
   let indices = null;
@@ -986,6 +1067,7 @@ async function getScanner(req, res) {
     count: filteredResults.length,
     min_score: minScore,
     price_presets: PRICE_PRESETS,
+    diagnostics,
     filters: {
       min_price: discoveryFilters.min_price || null,
       max_price: discoveryFilters.max_price || null,
@@ -993,7 +1075,8 @@ async function getScanner(req, res) {
       min_gap: discoveryFilters.min_gap || null,
       max_gap: discoveryFilters.max_gap || null,
       min_rvol: discoveryFilters.min_rvol || null,
-      min_volume: discoveryFilters.min_volume || null
+      min_volume: discoveryFilters.min_volume || null,
+      include_unknown_rvol: String(discoveryFilters.include_unknown_rvol ?? 'true').toLowerCase() === 'true'
     }
   });
 }
