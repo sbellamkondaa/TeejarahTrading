@@ -4,8 +4,8 @@
  * by default; not exposed publicly. PAPER-only; no live order tools.
  */
 
-const asyncHandler = require('../utils/asyncHandler');
-const mcp = require('../services/mcp/teejarahMcpServer');
+const asyncHandler = require('../../utils/asyncHandler');
+const mcp = require('../../services/mcp/teejarahMcpServer');
 
 // GET /api/mcp/tools — list registered tools + schemas
 async function listTools(req, res) {
