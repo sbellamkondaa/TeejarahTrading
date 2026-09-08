@@ -965,6 +965,51 @@ Current safety defaults:
         API endpoints 401 unauthenticated (auth-gated). LIVE trading flags
         remain unset (default false).
 
+  7h. Scanner RVOL + penny-stock filtering defect fix ← COMPLETED
+      - Production defect: scanner showed RVOL=0 for all candidates (null
+        converted to 0 in opportunity score); Min RVOL=1.5 removed all
+        candidates (null rvol excluded by filter); "Exclude penny stocks"
+        checked but sub-$5 symbols (PDSB $0.36, ARBE $0.80, MOBX $1.38,
+        TWG $0.49) still appeared (AVOID candidates included in results).
+      - Root cause: `rvol: null` hardcoded in controller; `opportunityScore`
+        converted null→0; `applyDiscoveryFilters` excluded null-rvol when
+        min_rvol set; `scanCandidates` pushed AVOID penny stocks into results
+        instead of excluding them.
+      - Fix 1 (RVOL): new `rvolCalculator.js` batch-fetches 20-session daily
+        history from Schwab for top 30 candidates by volume, calculates
+        RVOL = current_session_volume / 20-day_avg_daily_volume. Labeled
+        `rvol_method: "daily_volume_ratio"`, `rvol_status: "CALCULATED"`.
+        Uses America/New_York midnight boundary (not server TZ) to exclude
+        today's incomplete session. Candidates without history get
+        `rvol: null, rvol_status: "UNKNOWN"` (NEVER 0).
+      - Fix 2 (opportunity score): null rvol produces `factors.rvol = null`
+        + `rvol_unknown: true` (NOT 0). Score contribution is 0 (neutral),
+        not a fabricated real value.
+      - Fix 3 (min_rvol filter): `include_unknown_rvol` option (default true
+        for discovery). When true, unknown-rvol candidates are included even
+        with min_rvol set (so breaking stocks without historical data are
+        not hidden). When false, they are excluded (stricter validation).
+      - Fix 4 (penny stocks): `scanCandidates` now EXCLUDES sub-$5 candidates
+        without a catalyst exception from results entirely (not AVOID).
+        Candidates with a strong catalyst exception (earnings/halt) are
+        labeled `classification: "SPECULATIVE"`, `penny_exception: true`.
+      - Filter diagnostics: API response includes `diagnostics` object with
+        `universe_count`, `price_filtered`, `penny_filtered`, `gap_filtered`,
+        `rvol_filtered`, `rvol_unknown`, `other_filtered`, `result_count`.
+      - Frontend: RVOL displayed on scanner cards (`RVOL 4.2x` or
+        `RVOL Unknown`); rvol_method shown in expanded details; diagnostics
+        summary banner; `include_unknown_rvol` checkbox.
+      - Tests: 15 new focused tests (null rvol stays null not 0; real rvol
+        propagates; min_rvol filtering with/without unknown; penny exclusion
+        removes <$5; SPECULATIVE exception label; price preset $5-$20
+        isolation; MCP no-live-tool; live-flag regression). 209 tests total
+        across 11 suites pass. Frontend build clean.
+      - fast-review: completed once; fixed 2 findings (MEDIUM: today-boundary
+        used server TZ → America/New_York; LOW: fallback included partial
+        session → exclude last candle in both branches).
+      - Production validation: all containers healthy; all pages 200; all
+        API endpoints 401 unauthenticated; LIVE trading flags remain false.
+
   8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management
