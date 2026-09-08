@@ -1042,7 +1042,7 @@ async function listPositions({ status, limit = 50 } = {}) {
   const conditions = [];
   if (status) {
     params.push(status);
-    conditions.push(`status = $${params.length}`);
+    conditions.push(`pp.status = $${params.length}`);
   }
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   params.push(limit);

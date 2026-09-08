@@ -314,6 +314,15 @@ class SchwabMarketData {
 
     try {
       const symbolList = symbols.map(s => s.toUpperCase()).join(',');
+      const cacheKey = `schwab_quotes:${symbolList}`;
+
+      // 15-second cache — batch quotes are expensive and repeated by every scanner refresh.
+      // Short enough to stay fresh for real-time display, long enough to absorb
+      // concurrent requests from multiple pages polling simultaneously.
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
 
       const response = await axios.get(
         `${SCHWAB_MARKET_DATA_BASE}/quotes`,
@@ -357,9 +366,14 @@ class SchwabMarketData {
         }
       }
 
+      cache.set(cacheKey, results, 15 * 1000);
       return results;
     } catch (error) {
-      console.error('[SCHWAB-MARKET] Error fetching batch quotes:', error.message);
+      if (error.response?.status === 429) {
+        console.warn('[SCHWAB-MARKET] Batch quotes rate limited');
+      } else {
+        console.error('[SCHWAB-MARKET] Error fetching batch quotes:', error.message);
+      }
       return {};
     }
   }
