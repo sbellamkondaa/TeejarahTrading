@@ -901,6 +901,70 @@ Current safety defaults:
         schwab-mcp concept review, MIT attribution, what was/was not
         integrated, and future Schwab live work.
 
+  7g. Market Intelligence / Scanner session-data reliability patch ← COMPLETED
+      - Startup ingestion: when `ENABLE_MARKET_INTELLIGENCE_SCHEDULER=true`,
+        the worker runs one `runIngestionCycle({ initial: true })` immediately
+        on startup so `market_events` populates without waiting 300s. Failure
+        is logged but never crashes the worker. Configurable initial lookback
+        via `MARKET_INTELLIGENCE_INITIAL_LOOKBACK_HOURS` (default 72h, capped
+        720h); applied to SEC, Nasdaq halt, and Finnhub news sources on the
+        initial cycle only (normal cycles keep short lookbacks).
+      - Manual ingestion endpoint: `POST /api/market/intelligence/ingest`
+        (auth-gated) triggers one bounded cycle with `{ initial?: boolean }`;
+        `GET /api/market/intelligence/status` returns scheduler + last-run
+        state. Redis advisory lock (5-min TTL) prevents concurrent
+        scheduler/endpoint duplicate runs.
+      - Migration 271: `scanner_universe_snapshots` (additive) — persists the
+        latest mover/scanner universe per session so the scanner can serve a
+        fallback candidate set when Schwab movers returns empty (closed,
+        after-hours, overnight, weekends).
+      - Scanner fallback universe: when Schwab movers is non-empty, the
+        scanner persists a snapshot. When empty, it builds a bounded universe
+        from: (1) latest persisted snapshot, (2) symbols with fresh
+        HIGH/MEDIUM materiality events (24h), deduplicated ≤100. Current
+        prices are ALWAYS re-fetched live (Finnhub batch quote); candidates
+        with no current quote are marked `stale: true` (never fabricated).
+        Response includes `universe_source` (schwab_movers /
+        persisted_snapshot / recent_events / mixed_fallback / none),
+        `universe_as_of`, `quote_as_of`, `fallback_note`.
+      - Session selector: `&session=auto|premarket|regular|after_hours|overnight`
+        on `/api/market/scanner` and `/api/market/movers`. AUTO uses
+        `getMarketSession()`. After-hours fallback note: "After-hours
+        candidates are monitored from today's active/catalyst universe."
+      - Extended-hours candles: `schwabMarketData.getCandles()` now accepts
+        `options.extendedHours`; `needExtendedHoursData` is option-driven
+        (was hardcoded false). Threaded via `&extended_hours=true` on
+        `/api/market/candles`. Workstation requests extended-hours candles
+        when the session is premarket/after_hours/overnight.
+      - Workstation fixes:
+          - Quote endpoint corrected: `/market/quote` → `/symbols/quote`.
+          - Manual symbol load input (Symbol + Load) reuses `selectSymbol()`
+            flow; works with zero scanner candidates; preserves
+            AbortController stale-response protection.
+          - Session selector dropdown (AUTO/PREMARKET/REGULAR/AFTER HOURS/
+            OVERNIGHT) propagates to scanner + candles.
+          - Universe-source badge (SNAP/EVT/MIX) + fallback note in scanner
+            panel.
+      - News symbol fix: `getNews` now honors `req.query.symbol` — workstation
+        selected-symbol news is symbol-specific, not defaulted to SPY/QQQ.
+      - Closed-market UX: MarketIntelligenceView distinguishes
+        "Automatic ingestion disabled" vs "Scheduler enabled; awaiting first
+        ingestion". ScannerView + PremarketMoversView show closed-market
+        reason + fallback banner with snapshot timestamp when a fallback
+        universe is served.
+      - Tests: 21 new focused tests (scannerUniverseSnapshot capture/dedup/
+        bounds, buildFallbackUniverse mixed/none, ingestion lock skip/proceed,
+        scheduler startup ingestion, source configurable lookback, MCP no-live-
+        tool, live-flag regression). 194 tests total across 10 suites pass.
+        Frontend build clean.
+      - fast-review: completed once; fixed 1 LOW finding (zero-price quote
+        misclassification: `> 0` → `>= 0`).
+      - Production validation: migration 271 applied; startup ingestion
+        populated 959 events / 1086 symbol links / 3 source-health rows on
+        first worker boot. All containers healthy. All pages 200; all new
+        API endpoints 401 unauthenticated (auth-gated). LIVE trading flags
+        remain unset (default false).
+
   8. Schwab live execution behind feature flag + explicit approval
 
 9. Automated T1/T2/stop management
