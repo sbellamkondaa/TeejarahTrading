@@ -27,6 +27,16 @@ jest.mock('../../src/controllers/market.controller', () => ({
   getSources: jest.fn()
 }));
 
+jest.mock('../../src/controllers/advisory.controller', () => ({
+  analyze: jest.fn(),
+  getStatus: jest.fn()
+}));
+
+jest.mock('../../src/controllers/marketIntelligence.controller', () => ({
+  triggerIngestion: jest.fn(),
+  getStatus: jest.fn()
+}));
+
 const express = require('express');
 
 // Capture router.use / router.get / router.post calls in a fake router.
@@ -52,13 +62,18 @@ describe('market.routes wiring', () => {
   test('all GET endpoints are registered', () => {
     const paths = getCalls.map((args) => args[0]);
     const expected = ['/advisory/status', '/candles', '/earnings', '/events', '/events/:symbol', '/filings', '/halts',
-      '/indices', '/movers', '/news', '/relationships/:symbol', '/scanner', '/sources'];
+      '/indices', '/intelligence/status', '/movers', '/news', '/relationships/:symbol', '/scanner', '/sources'];
     expect(paths.sort()).toEqual(expected.sort());
   });
 
-  test('POST /advisory is registered (auth-gated)', () => {
+  test('POST /advisory and /intelligence/ingest are registered (auth-gated)', () => {
     const paths = postCalls.map((args) => args[0]);
-    expect(paths).toEqual(['/advisory']);
+    expect(paths.sort()).toEqual(['/advisory', '/intelligence/ingest']);
+  });
+
+  test('GET /intelligence/status is registered (auth-gated)', () => {
+    const paths = getCalls.map((args) => args[0]);
+    expect(paths).toContain('/intelligence/status');
   });
 
   test('authenticate rejects without a session (401)', () => {

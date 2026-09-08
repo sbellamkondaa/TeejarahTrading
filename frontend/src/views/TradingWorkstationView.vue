@@ -57,13 +57,40 @@
               {{ scannerLoading ? '…' : '↻' }}
             </button>
           </div>
+          <!-- Manual symbol load: works even when scanner returns 0 candidates -->
+          <div class="mt-2 flex items-center gap-1">
+            <input v-model="manualSymbol" @keyup.enter="loadManualSymbol" type="text"
+              placeholder="Symbol (e.g. AAPL)"
+              class="flex-1 text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500" />
+            <button @click="loadManualSymbol" :disabled="manualSymbolLoading"
+              class="text-xs px-2 py-1 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50">
+              {{ manualSymbolLoading ? '…' : 'Load' }}
+            </button>
+          </div>
+          <!-- Session selector -->
+          <div class="mt-1 flex items-center gap-1">
+            <select v-model="sessionFilter" @change="fetchScanner" class="flex-1 text-[10px] px-1 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+              <option value="auto">AUTO</option>
+              <option value="premarket">PREMARKET</option>
+              <option value="regular">REGULAR</option>
+              <option value="after_hours">AFTER HOURS</option>
+              <option value="overnight">OVERNIGHT</option>
+            </select>
+            <span v-if="scannerUniverseNote" :title="scannerUniverseNote"
+              class="text-[10px] px-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {{ scannerUniverseLabel }}
+            </span>
+          </div>
         </div>
         <div class="flex-1 overflow-y-auto">
           <div v-if="scannerLoading && scanner.length === 0" class="flex justify-center py-8">
             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
           </div>
           <div v-else-if="scannerError" class="px-3 py-4 text-xs text-red-600 dark:text-red-400">{{ scannerError }}</div>
-          <div v-else-if="scanner.length === 0" class="px-3 py-8 text-center text-xs text-gray-400">No candidates</div>
+          <div v-else-if="scanner.length === 0" class="px-3 py-8 text-center text-xs text-gray-400">
+            No candidates
+            <div v-if="scannerUniverseNote" class="mt-1 text-amber-600 dark:text-amber-400">{{ scannerUniverseNote }}</div>
+          </div>
           <div v-else>
             <div v-for="c in scanner" :key="c.symbol"
               @click="selectSymbol(c)"
@@ -438,6 +465,12 @@ const scanner = ref([])
 const scannerLoading = ref(false)
 const scannerError = ref(null)
 const scannerStale = ref(false)
+const sessionFilter = ref('auto')
+const scannerUniverseSource = ref('schwab_movers')
+const scannerUniverseAsOf = ref(null)
+const scannerFallbackNote = ref(null)
+const manualSymbol = ref('')
+const manualSymbolLoading = ref(false)
 
 const selectedSymbol = ref(null)
 const selectedCandidate = ref(null)
@@ -567,10 +600,15 @@ async function fetchScanner() {
   scannerLoading.value = true
   scannerError.value = null
   try {
-    const { data } = await api.get('/market/scanner', { params: { limit: 100 } })
+    const params = { limit: 100 }
+    if (sessionFilter.value && sessionFilter.value !== 'auto') params.session = sessionFilter.value
+    const { data } = await api.get('/market/scanner', { params })
     scanner.value = data.candidates || []
     if (data.session) applySessionClasses(data.session)
     scannerStale.value = false
+    scannerUniverseSource.value = data.universe_source || 'schwab_movers'
+    scannerUniverseAsOf.value = data.universe_as_of || null
+    scannerFallbackNote.value = data.fallback_note || null
   } catch (err) {
     scannerError.value = err?.response?.data?.error || 'Scanner failed'
     scanner.value = []
@@ -578,6 +616,34 @@ async function fetchScanner() {
   } finally {
     scannerLoading.value = false
   }
+}
+
+const scannerUniverseNote = computed(() => {
+  if (scannerFallbackNote.value) return scannerFallbackNote.value
+  if (scannerUniverseSource.value && scannerUniverseSource.value !== 'schwab_movers') {
+    return 'Fallback universe — live Schwab movers unavailable'
+  }
+  return null
+})
+
+const scannerUniverseLabel = computed(() => {
+  const s = scannerUniverseSource.value
+  if (!s || s === 'schwab_movers') return ''
+  if (s === 'persisted_snapshot') return 'SNAP'
+  if (s === 'recent_events') return 'EVT'
+  if (s === 'mixed_fallback') return 'MIX'
+  if (s === 'none') return '—'
+  return ''
+})
+
+function loadManualSymbol() {
+  const sym = (manualSymbol.value || '').trim().toUpperCase()
+  if (!sym || !/^[A-Z][A-Z0-9.\-]{0,15}$/.test(sym)) return
+  manualSymbolLoading.value = true
+  // Reuse the existing selectSymbol flow with a minimal candidate object so
+  // all downstream fetches (quote, candles, news, events, risk, paper) run.
+  selectSymbol({ symbol: sym })
+  manualSymbolLoading.value = false
 }
 
 // ─── Symbol Selection ─────────────────────────────────────────────────────
@@ -612,7 +678,7 @@ async function fetchQuote() {
   if (!selectedSymbol.value) return
   const ac = fetchAbortController
   try {
-    const { data } = await api.get('/market/quote', { params: { symbol: selectedSymbol.value }, signal: ac?.signal })
+    const { data } = await api.get('/symbols/quote', { params: { symbol: selectedSymbol.value }, signal: ac?.signal })
     if (fetchAbortController === ac) quoteData.value = data
   } catch (err) {
     if (err?.name !== 'CanceledError') quoteData.value = null
@@ -625,10 +691,13 @@ async function fetchChart() {
   chartLoading.value = true
   chartError.value = null
   try {
-    const { data } = await api.get('/market/candles', {
-      params: { symbol: selectedSymbol.value, resolution: timeframe.value, hours: 8 },
-      signal: ac?.signal
-    })
+    const params = { symbol: selectedSymbol.value, resolution: timeframe.value, hours: 8 }
+    // Request extended-hours candles when the user selected a premarket/after_hours/overnight session.
+    const sess = sessionFilter.value
+    if (sess === 'premarket' || sess === 'after_hours' || sess === 'overnight') {
+      params.extended_hours = 'true'
+    }
+    const { data } = await api.get('/market/candles', { params, signal: ac?.signal })
     // Ignore if a newer request was started
     if (fetchAbortController !== ac) return
     chartData.value = data.candles || []

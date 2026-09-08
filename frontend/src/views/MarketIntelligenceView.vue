@@ -11,8 +11,9 @@
         Deterministic classification, materiality ranking, and source verification.
       </p>
       <p class="mt-1 text-xs text-gray-500 dark:text-gray-500">
-        <template v-if="schedulerEnabled">Scheduler active — events refresh automatically.</template>
-        <template v-else>Automatic ingestion off. Historical events remain searchable.</template>
+        <template v-if="schedulerEnabled && sources.length === 0">Scheduler enabled; awaiting first ingestion.</template>
+        <template v-else-if="schedulerEnabled">Scheduler active — events refresh automatically.</template>
+        <template v-else>Automatic ingestion disabled. Historical events remain searchable.</template>
       </p>
     </div>
 

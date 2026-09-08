@@ -836,10 +836,14 @@ function scheduleBackgroundServices(backgroundJobsDisabled) {
   if (backgroundJobsDisabled) {
     console.log('Market intelligence scheduler disabled (DISABLE_BACKGROUND_JOBS=true)');
   } else if (process.env.ENABLE_MARKET_INTELLIGENCE_SCHEDULER === 'true') {
-    defer('market-intelligence-scheduler', () => {
+    defer('market-intelligence-scheduler', async () => {
       console.log('Starting Market intelligence scheduler...');
       marketIntelligenceScheduler.start();
       console.log('[SUCCESS] Market intelligence scheduler started');
+      // Immediate startup ingestion so market_events populates without
+      // waiting for the first 300s tick. Uses the larger initial lookback.
+      // Failures are logged but never crash the worker.
+      await marketIntelligenceScheduler.runStartupIngestion();
     });
   } else {
     console.log('Market intelligence scheduler disabled (ENABLE_MARKET_INTELLIGENCE_SCHEDULER=false)');

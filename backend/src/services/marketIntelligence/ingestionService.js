@@ -10,21 +10,44 @@
  */
 
 const logger = require('../../utils/logger');
+const redisCache = require('../../utils/redisCache');
 const { normalize } = require('./eventNormalizer');
 const { classify } = require('./eventClassifier');
 const { upsertBatch, recordSourceHealth } = require('./eventDeduplicator');
 
+const LOCK_NAMESPACE = 'market-intel-ingest';
+const LOCK_TTL_MS = 5 * 60 * 1000;
+
 /**
  * Run one ingestion cycle. Returns aggregate counts.
+ * @param {object} [options] - { initial?: boolean }
  * @returns {Promise<object>}
  */
-async function runIngestionCycle() {
-  return ingestAll();
+async function runIngestionCycle(options = {}) {
+  return ingestAll(options);
 }
 
-async function ingestAll() {
+async function ingestAll(options = {}) {
+  // Distributed lock so the manual endpoint and the scheduler cannot run
+  // concurrently. Returns a skipped result when the lock is held.
+  // When Redis is unavailable, the lock is a no-op (proceed without it).
+  const existing = await redisCache.get(LOCK_NAMESPACE, 'lock').catch(() => null);
+  if (existing) {
+    return { skipped: true, reason: 'ingestion already in progress' };
+  }
+  await redisCache.set(LOCK_NAMESPACE, 'lock', String(Date.now()), LOCK_TTL_MS).catch(() => {});
+  try {
+    return await _ingestAllLocked(options);
+  } finally {
+    // Best-effort lock release; TTL is the safety net.
+    await redisCache.del(LOCK_NAMESPACE, 'lock').catch(() => {});
+  }
+}
+
+async function _ingestAllLocked(options = {}) {
   const { getEnabledSources } = require('./sourceRegistry');
   const enabled = getEnabledSources();
+  const initial = Boolean(options.initial);
 
   let totalInserted = 0;
   let totalUpdated = 0;
@@ -38,7 +61,7 @@ async function ingestAll() {
     const started = Date.now();
     let items = [];
     try {
-      const res = await source.fetchRecent();
+      const res = await source.fetchRecent({ initial });
       items = (res && Array.isArray(res.items)) ? res.items : [];
     } catch (error) {
       errorCount++;

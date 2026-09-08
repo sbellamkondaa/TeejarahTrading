@@ -13,7 +13,13 @@ const { SOURCE_TIERS, MATERIAL_FORMS, OFFERING_FORMS } = require('../eventTypes'
 
 const NAME = 'sec_filings';
 const TIER = SOURCE_TIERS.PRIMARY;
-const LOOKBACK_HOURS = 24;
+const DEFAULT_LOOKBACK_HOURS = 24;
+
+function getLookbackHours() {
+  const raw = parseInt(process.env.MARKET_INTELLIGENCE_INITIAL_LOOKBACK_HOURS || '', 10);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_LOOKBACK_HOURS;
+  return Math.min(raw, 720); // cap at 30 days
+}
 
 function isEnabled() {
   return String(process.env.ENABLE_SEC_EVENT_SOURCE ?? 'true').toLowerCase() === 'true';
@@ -22,8 +28,13 @@ function isEnabled() {
 function name() { return NAME; }
 function sourceTier() { return TIER; }
 
-async function fetchRecent() {
+async function fetchRecent(options = {}) {
   if (!isEnabled()) return { items: [], fetched: 0 };
+
+  // Initial/backfill cycle uses a larger lookback; normal cycles use the
+  // default. The caller (ingestionService) passes { initial: true } on the
+  // startup run so we pull more history once without re-fetching it every cycle.
+  const lookback = options.initial ? getLookbackHours() : DEFAULT_LOOKBACK_HOURS;
 
   const result = await db.query(
     `SELECT sc.ticker, sf.form_type, sf.filing_date, sf.accepted_at, sf.filing_url, sc.company_name
@@ -31,8 +42,8 @@ async function fetchRecent() {
      JOIN sec_companies sc ON sc.id = sf.company_id
      WHERE sf.accepted_at >= NOW() - make_interval($1::int)
      ORDER BY sf.accepted_at DESC NULLS LAST
-     LIMIT 200`,
-    [LOOKBACK_HOURS]
+     LIMIT 500`,
+    [lookback]
   );
 
   const items = [];

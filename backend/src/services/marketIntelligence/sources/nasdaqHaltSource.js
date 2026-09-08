@@ -9,7 +9,13 @@ const { SOURCE_TIERS } = require('../eventTypes');
 
 const NAME = 'nasdaq_halts';
 const TIER = SOURCE_TIERS.PRIMARY;
-const LOOKBACK_HOURS = 24;
+const DEFAULT_LOOKBACK_HOURS = 24;
+
+function getLookbackHours() {
+  const raw = parseInt(process.env.MARKET_INTELLIGENCE_INITIAL_LOOKBACK_HOURS || '', 10);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_LOOKBACK_HOURS;
+  return Math.min(raw, 720);
+}
 
 function isEnabled() {
   return String(process.env.ENABLE_NASDAQ_HALT_SOURCE ?? 'true').toLowerCase() === 'true';
@@ -18,16 +24,18 @@ function isEnabled() {
 function name() { return NAME; }
 function sourceTier() { return TIER; }
 
-async function fetchRecent() {
+async function fetchRecent(options = {}) {
   if (!isEnabled()) return { items: [], fetched: 0 };
+
+  const lookback = options.initial ? getLookbackHours() : DEFAULT_LOOKBACK_HOURS;
 
   const result = await db.query(
     `SELECT symbol, halt_type, reason, exchange, halted_at, resume_at, is_resumption
      FROM market_halts
      WHERE halted_at >= NOW() - make_interval($1::int)
      ORDER BY halted_at DESC
-     LIMIT 200`,
-    [LOOKBACK_HOURS]
+     LIMIT 500`,
+    [lookback]
   );
 
   const items = [];

@@ -64,7 +64,11 @@ class MarketIntelligenceScheduler extends IntervalScheduler {
     await this.recordStartedSafe();
     let result;
     try {
-      result = await runIngestionCycle();
+      // The first scheduled/initial run uses a larger lookback (backfill).
+      // Subsequent runs use the default short lookback.
+      const initial = !this._initialRunDone;
+      result = await runIngestionCycle({ initial });
+      this._initialRunDone = true;
     } catch (error) {
       await this.recordFailureSafe(error);
       throw error;
@@ -108,6 +112,29 @@ class MarketIntelligenceScheduler extends IntervalScheduler {
       lastRunAt: this.lastRunAt,
       lastResult: this.lastResult
     };
+  }
+
+  /**
+   * Run one ingestion cycle immediately on worker startup so events populate
+   * without waiting for the first interval tick. Uses the initial (larger)
+   * lookback. Failures are logged but never crash the worker. The scheduler's
+   * running guard + Redis lock prevent overlap with a concurrent scheduled run.
+   */
+  async runStartupIngestion() {
+    try {
+      console.log(`${LOG_PREFIX} Running startup ingestion (initial lookback)...`);
+      const result = await runIngestionCycle({ initial: true });
+      this._initialRunDone = true;
+      this.lastRunAt = new Date();
+      this.lastResult = result;
+      console.log(
+        `${LOG_PREFIX} Startup ingestion ok: sources=${result.sources} items=${result.items} inserted=${result.inserted} deduped=${result.deduped} errors=${result.errors}`
+      );
+      return result;
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} Startup ingestion failed (non-fatal): ${error.message}`);
+      return { ok: false, error: error.message };
+    }
   }
 }
 

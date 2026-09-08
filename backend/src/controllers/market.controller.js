@@ -20,6 +20,7 @@ const {
   applyDiscoveryFilters,
   PRICE_PRESETS
 } = require('../services/marketIntelligence/opportunityScore');
+const scannerUniverseSnapshot = require('../services/marketIntelligence/scannerUniverseSnapshot');
 const {
   isSchedulerEnabled: isIntelSchedulerEnabled,
   SCHEDULER_NAME: INTEL_SCHEDULER_NAME
@@ -205,16 +206,23 @@ async function buildHaltFreshness() {
   };
 }
 
-// GET /api/market/news?limit=15
+// GET /api/market/news?symbol=AAPL&limit=15
+// When symbol is provided, fetches news for that symbol only (workstation).
+// When omitted, fetches broad-market news for the default watchlist.
 async function getNews(req, res) {
   const limit = parseLimit(req.query.limit);
+  const requestedSymbol = parseToken(req.query.symbol, 20);
   const from = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const to = new Date().toISOString().split('T')[0];
 
   const aggregated = [];
   const seenIds = new Set();
 
-  for (const symbol of MARKET_NEWS_SYMBOLS) {
+  // When a specific symbol is requested, fetch news for that symbol only —
+  // never default workstation selected-symbol news to SPY/QQQ.
+  const symbolsToFetch = requestedSymbol ? [requestedSymbol] : MARKET_NEWS_SYMBOLS;
+
+  for (const symbol of symbolsToFetch) {
     try {
       const items = await finnhub.getCompanyNews(symbol, from, to);
       if (!Array.isArray(items)) continue;
@@ -240,7 +248,7 @@ async function getNews(req, res) {
   aggregated.sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
   const news = aggregated.slice(0, limit);
 
-  return res.json({ news, count: news.length, from, to });
+  return res.json({ news, count: news.length, from, to, symbol: requestedSymbol || null });
 }
 
 // GET /api/market/earnings?limit=10
@@ -467,6 +475,10 @@ async function getMovers(req, res) {
   const allItems = [];
   const fetchedAts = [];
   let source = 'schwab';
+  const { requested: requestedSession, effective: effectiveSession } = resolveSession(req.query);
+  let universeSource = 'schwab_movers';
+  let universeAsOf = null;
+  let fallbackNote = null;
 
   for (const indexSymbol of MOVER_INDEXES) {
     const result = await schwabMarketData.getMovers(indexSymbol);
@@ -478,17 +490,37 @@ async function getMovers(req, res) {
   }
 
   if (allItems.length === 0) {
-    const session = getMarketSession();
-    return res.json({
-      session: session.session,
-      session_label: session.label,
-      as_of: Date.now(),
-      source,
-      stale: false,
-      movers: [],
-      indices: null,
-      error: 'Movers data unavailable (Schwab connection may be inactive)'
+    // Fallback: latest persisted snapshot + recent event symbols.
+    const fallback = await scannerUniverseSnapshot.buildFallbackUniverse(effectiveSession);
+    if (fallback.symbols.length > 0) {
+      universeSource = fallback.universe_source;
+      universeAsOf = fallback.universe_as_of;
+      fallbackNote = 'Showing latest session snapshot — Schwab live movers unavailable.';
+      for (const sym of fallback.symbols) {
+        allItems.push({ symbol: sym, description: null, last_price: null, net_change: null, net_percent_change: null, volume: null, total_volume: null });
+      }
+    } else {
+      const session = getMarketSession();
+      return res.json({
+        session: effectiveSession,
+        session_label: session.label,
+        as_of: Date.now(),
+        source,
+        universe_source: 'none',
+        universe_as_of: null,
+        stale: false,
+        movers: [],
+        indices: null,
+        fallback_note: null,
+        error: 'No live movers available and no cached universe exists yet.'
+      });
+    }
+  } else {
+    // Persist snapshot for future fallback.
+    await scannerUniverseSnapshot.captureSnapshot(effectiveSession, allItems.map((i) => i.symbol).filter(Boolean), {
+      source: 'schwab_movers', indices: MOVER_INDEXES
     });
+    universeAsOf = fetchedAts.length ? new Date(Math.min(...fetchedAts)).toISOString() : new Date().toISOString();
   }
 
   // Deduplicate by symbol (keep first occurrence — highest volume index wins)
@@ -620,10 +652,14 @@ async function getMovers(req, res) {
   const stale = (Date.now() - asOf) > 5 * 60 * 1000;
 
   return res.json({
-    session: session.session,
+    session: effectiveSession,
+    session_requested: requestedSession,
     session_label: session.label,
     as_of: asOf,
     source,
+    universe_source: universeSource,
+    universe_as_of: universeAsOf,
+    fallback_note: fallbackNote,
     stale,
     movers,
     indices
@@ -658,6 +694,21 @@ function compactFundamental(profile) {
 //   &min_price=&max_price=&min_gap=&max_gap=&min_rvol=&min_volume=
 //   &min_dollar_volume=&max_spread=&market_cap=micro|small|mid|large
 //   &exclude_otc=true&price_preset=5_20
+//   &session=auto|premarket|regular|after_hours|overnight
+//   &extended_hours=true
+const VALID_SESSIONS = new Set(['auto', 'premarket', 'regular', 'after_hours', 'overnight']);
+
+function resolveSession(query) {
+  const requested = String(query.session || 'auto').toLowerCase();
+  if (!VALID_SESSIONS.has(requested)) return { requested: 'auto', effective: getMarketSession().session };
+  if (requested === 'auto') return { requested: 'auto', effective: getMarketSession().session };
+  return { requested, effective: requested };
+}
+
+function isExtendedHoursSession(effectiveSession) {
+  return effectiveSession === 'premarket' || effectiveSession === 'after_hours' || effectiveSession === 'overnight';
+}
+
 async function getScanner(req, res) {
   const limit = parseLimit(req.query.limit);
   const minScoreRaw = parseInt(req.query.min_score, 10);
@@ -666,6 +717,8 @@ async function getScanner(req, res) {
     : 40;
 
   const excludePennyStocks = String(req.query.exclude_penny ?? 'true').toLowerCase() !== 'false';
+  const { requested: requestedSession, effective: effectiveSession } = resolveSession(req.query);
+  const extendedHours = String(req.query.extended_hours || '').toLowerCase() === 'true' || isExtendedHoursSession(effectiveSession);
 
   // Discovery filters (price presets, gap, rvol, volume, market cap, exchange)
   const discoveryFilters = {
@@ -692,6 +745,9 @@ async function getScanner(req, res) {
   const allItems = [];
   const fetchedAts = [];
   let source = 'schwab';
+  let universeSource = 'schwab_movers';
+  let universeAsOf = null;
+  let fallbackNote = null;
 
   for (const indexSymbol of MOVER_INDEXES) {
     const result = await schwabMarketData.getMovers(indexSymbol);
@@ -702,17 +758,45 @@ async function getScanner(req, res) {
     }
   }
 
-  if (allItems.length === 0) {
-    const session = getMarketSession();
-    return res.json({
-      session: session.session,
-      session_label: session.label,
-      as_of: Date.now(),
-      source,
-      candidates: [],
-      count: 0,
-      error: 'Movers data unavailable (Schwab connection may be inactive)'
+  // When Schwab movers is non-empty, persist a snapshot for future fallback.
+  if (allItems.length > 0) {
+    const snapshotSymbols = allItems.map((i) => i.symbol).filter(Boolean);
+    await scannerUniverseSnapshot.captureSnapshot(effectiveSession, snapshotSymbols, {
+      source: 'schwab_movers',
+      indices: MOVER_INDEXES
     });
+    universeAsOf = fetchedAts.length ? new Date(Math.min(...fetchedAts)).toISOString() : new Date().toISOString();
+  } else {
+    // Schwab movers empty (closed/after-hours/overnight/weekend): build a
+    // fallback universe from the latest persisted snapshot + recent events.
+    // Current prices are ALWAYS re-fetched live below — the snapshot is for
+    // candidate discovery only, never for serving stale prices.
+    const fallback = await scannerUniverseSnapshot.buildFallbackUniverse(effectiveSession);
+    if (fallback.symbols.length > 0) {
+      universeSource = fallback.universe_source;
+      universeAsOf = fallback.universe_as_of;
+      fallbackNote = effectiveSession === 'after_hours'
+        ? 'After-hours candidates are monitored from today\'s active/catalyst universe.'
+        : 'Showing latest session snapshot — Schwab live movers unavailable.';
+      // Synthesize minimal mover items from the fallback symbols; real
+      // prices/indicators come from the live batch quote below.
+      for (const sym of fallback.symbols) {
+        allItems.push({ symbol: sym, description: null, last_price: null, net_change: null, net_percent_change: null, volume: null, total_volume: null });
+      }
+    } else {
+      const session = getMarketSession();
+      return res.json({
+        session: effectiveSession,
+        session_label: session.label,
+        as_of: Date.now(),
+        source,
+        universe_source: 'none',
+        universe_as_of: null,
+        candidates: [],
+        count: 0,
+        error: 'No live movers available and no cached universe exists yet.'
+      });
+    }
   }
 
   // Deduplicate
@@ -726,7 +810,8 @@ async function getScanner(req, res) {
     }
   }
 
-  // Batch quote for previous close
+  // Batch quote for previous close + live last price (always re-fetched, even
+  // for fallback universe symbols — never serve stale prices as current).
   const symbolsToQuote = deduped.map((i) => i.symbol);
   let quotes = {};
   try {
@@ -734,31 +819,38 @@ async function getScanner(req, res) {
   } catch (err) {
     logger.warn('[MARKET] Scanner batch quote failed: ' + err.message);
   }
+  const quoteAsOf = Date.now();
 
   // Build candidates with indicators (simplified — uses quote data, not full candles)
   const candidates = deduped.map((item) => {
     const sym = item.symbol;
     const q = quotes[sym] || {};
     const previousClose = q.pc != null ? Number(q.pc) : null;
-    const lastPrice = item.last_price;
+    // For fallback symbols (item.last_price == null), prefer the live quote.
+    const lastPrice = item.last_price != null ? item.last_price : (q.c != null ? Number(q.c) : null);
+    const changePercent = item.net_percent_change != null
+      ? item.net_percent_change
+      : (q.dp != null ? Number(q.dp) : null);
     const gapPct = calculateGapPct(lastPrice, previousClose);
+    const hasLiveQuote = q.c != null && Number.isFinite(Number(q.c)) && Number(q.c) >= 0;
 
     return {
       symbol: sym,
       company_name: item.description,
       last_price: lastPrice,
-      change_percent: item.net_percent_change,
+      change_percent: changePercent,
       gap_pct: gapPct,
       rvol: null, // requires intraday candle data not available here
       volume: item.volume,
       halted: false,
       catalysts: [],
-      session: getMarketSession().session,
+      session: effectiveSession,
+      stale: !hasLiveQuote, // fallback symbol with no current quote → STALE
       indicators: {
         last_price: lastPrice,
         previous_close: previousClose,
         gap_pct: gapPct,
-        change_percent: item.net_percent_change,
+        change_percent: changePercent,
         rvol: null,
         vwap: null,
         vwap_distance: null,
@@ -879,10 +971,16 @@ async function getScanner(req, res) {
   const asOf = fetchedAts.length ? Math.min(...fetchedAts) : Date.now();
 
   return res.json({
-    session: session.session,
+    session: effectiveSession,
+    session_requested: requestedSession,
     session_label: session.label,
     as_of: asOf,
     source,
+    universe_source: universeSource,
+    universe_as_of: universeAsOf,
+    quote_as_of: quoteAsOf,
+    extended_hours: extendedHours,
+    fallback_note: fallbackNote,
     indices,
     candidates: filteredResults,
     count: filteredResults.length,
@@ -927,13 +1025,14 @@ async function getCandles(req, res) {
   }
   const resolution = ['5', '1', '15'].includes(req.query.resolution) ? req.query.resolution : '5';
   const hours = Math.min(Math.max(parseInt(req.query.hours, 10) || 8, 1), 12);
+  const extendedHours = String(req.query.extended_hours || '').toLowerCase() === 'true';
   const nowSec = Math.floor(Date.now() / 1000);
   const fromSec = nowSec - (hours * 3600);
 
   try {
-    const candles = await schwabMarketData.getCandles(symbol, resolution, fromSec, nowSec);
+    const candles = await schwabMarketData.getCandles(symbol, resolution, fromSec, nowSec, { extendedHours });
     if (!candles || candles.length === 0) {
-      return res.json({ symbol, resolution, candles: [], source: 'schwab', stale: true });
+      return res.json({ symbol, resolution, candles: [], source: 'schwab', stale: true, extended_hours: extendedHours });
     }
 
     // Compute indicators using the same backend functions as the strategy
@@ -971,6 +1070,7 @@ async function getCandles(req, res) {
 
     return res.json({
       symbol, resolution, candles, source: 'schwab', as_of: Date.now(),
+      extended_hours: extendedHours,
       indicators: {
         vwap: vwap,
         ema9: ema9,

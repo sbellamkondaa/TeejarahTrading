@@ -109,7 +109,16 @@
 
     <!-- Empty -->
     <div v-else-if="!movers.length" class="state-card">
-      No movers match the current filters.
+      <p>No movers match the current filters.</p>
+      <p v-if="universeSource === 'none'" class="mt-1 text-amber-600 dark:text-amber-400">
+        Market may be closed — Schwab live movers unavailable and no cached universe exists yet.
+      </p>
+    </div>
+
+    <!-- Fallback banner -->
+    <div v-if="fallbackNote && movers.length" class="mt-3 px-3 py-2 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 text-xs">
+      {{ fallbackNote }}
+      <span v-if="universeAsOf" class="ml-1 text-amber-600 dark:text-amber-400">(snapshot {{ new Date(universeAsOf).toLocaleString() }})</span>
     </div>
 
     <!-- Movers table -->
@@ -207,6 +216,9 @@ const asOfLabel = ref('')
 const stale = ref(false)
 const source = ref('')
 const indices = ref(null)
+const universeSource = ref('schwab_movers')
+const universeAsOf = ref(null)
+const fallbackNote = ref(null)
 
 let pollTimer = null
 
@@ -260,6 +272,9 @@ async function fetchMovers() {
     stale.value = Boolean(data.stale)
     indices.value = data.indices || null
     asOfLabel.value = data.as_of ? formatTime(data.as_of) : ''
+    universeSource.value = data.universe_source || 'schwab_movers'
+    universeAsOf.value = data.universe_as_of || null
+    fallbackNote.value = data.fallback_note || null
   } catch (err) {
     error.value = err?.response?.data?.error || err?.message || 'Request failed'
     movers.value = []

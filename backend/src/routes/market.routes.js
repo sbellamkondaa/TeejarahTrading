@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const marketController = require('../controllers/market.controller');
 const advisoryController = require('../controllers/advisory.controller');
+const marketIntelController = require('../controllers/marketIntelligence.controller');
 
 router.use(authenticate);
 
@@ -20,5 +21,7 @@ router.get('/relationships/:symbol', marketController.getRelationships);
 router.get('/candles', marketController.getCandles);
 router.post('/advisory', advisoryController.analyze);
 router.get('/advisory/status', advisoryController.getStatus);
+router.post('/intelligence/ingest', marketIntelController.triggerIngestion);
+router.get('/intelligence/status', marketIntelController.getStatus);
 
 module.exports = router;

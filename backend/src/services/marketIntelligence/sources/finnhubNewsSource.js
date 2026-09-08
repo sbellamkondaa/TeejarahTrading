@@ -25,11 +25,19 @@ function isEnabled() {
 function name() { return NAME; }
 function sourceTier() { return TIER; }
 
-async function fetchRecent() {
+async function fetchRecent(options = {}) {
   if (!isEnabled()) return { items: [], fetched: 0 };
 
   const to = new Date().toISOString().split('T')[0];
-  const from = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Initial/backfill cycle uses a larger lookback (default 72h); normal cycles
+  // use 2 days to keep API usage low.
+  let lookbackDays = 2;
+  if (options.initial) {
+    const raw = parseInt(process.env.MARKET_INTELLIGENCE_INITIAL_LOOKBACK_HOURS || '', 10);
+    const hours = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 720) : 72;
+    lookbackDays = Math.max(2, Math.ceil(hours / 24));
+  }
+  const from = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const items = [];
   for (const symbol of WATCH_SYMBOLS) {

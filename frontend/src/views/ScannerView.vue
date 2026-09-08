@@ -26,6 +26,16 @@
     <!-- Filters -->
     <div class="mt-5 flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600 dark:text-gray-400">Session</label>
+        <select v-model="sessionFilter" @change="applyFilters" class="filter-input w-32">
+          <option value="auto">AUTO</option>
+          <option value="premarket">PREMARKET</option>
+          <option value="regular">REGULAR</option>
+          <option value="after_hours">AFTER HOURS</option>
+          <option value="overnight">OVERNIGHT</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
         <label class="text-sm text-gray-600 dark:text-gray-400">Min Score</label>
         <input v-model.number="filters.min_score" @change="applyFilters" type="number" min="0" max="100"
           class="filter-input w-20" />
@@ -75,7 +85,16 @@
 
     <!-- Empty -->
     <div v-else-if="!candidates.length" class="state-card">
-      No candidates match the current scan criteria.
+      <p>No candidates match the current scan criteria.</p>
+      <p v-if="universeSource === 'none'" class="mt-1 text-amber-600 dark:text-amber-400">
+        Market may be closed — Schwab live movers unavailable and no cached universe exists yet.
+      </p>
+    </div>
+
+    <!-- Fallback banner -->
+    <div v-if="fallbackNote && candidates.length" class="mt-3 px-3 py-2 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 text-xs">
+      {{ fallbackNote }}
+      <span v-if="universeAsOf" class="ml-1 text-amber-600 dark:text-amber-400">(snapshot {{ new Date(universeAsOf).toLocaleString() }})</span>
     </div>
 
     <!-- Candidates -->
@@ -242,6 +261,10 @@ const sessionLabel = ref('')
 const sessionBadgeClass = ref('')
 const sessionDotClass = ref('')
 const asOfLabel = ref('')
+const universeSource = ref('schwab_movers')
+const universeAsOf = ref(null)
+const fallbackNote = ref(null)
+const sessionFilter = ref('auto')
 const expanded = reactive(new Set())
 
 const filters = reactive({
@@ -285,6 +308,7 @@ async function fetchScanner() {
   error.value = null
   try {
     const params = { limit: 100, min_score: filters.min_score, exclude_penny: String(filters.exclude_penny) }
+    if (sessionFilter.value && sessionFilter.value !== 'auto') params.session = sessionFilter.value
     if (filters.price_preset) params.price_preset = filters.price_preset
     if (filters.min_rvol != null && filters.min_rvol !== '') params.min_rvol = filters.min_rvol
     if (filters.min_gap != null && filters.min_gap !== '') params.min_gap = filters.min_gap
@@ -294,6 +318,9 @@ async function fetchScanner() {
     sessionLabel.value = data.session_label || data.session || ''
     applySessionClasses(data.session)
     asOfLabel.value = data.as_of ? new Date(data.as_of).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+    universeSource.value = data.universe_source || 'schwab_movers'
+    universeAsOf.value = data.universe_as_of || null
+    fallbackNote.value = data.fallback_note || null
   } catch (err) {
     error.value = err?.response?.data?.error || err?.message || 'Request failed'
     candidates.value = []

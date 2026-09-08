@@ -384,9 +384,12 @@ class SchwabMarketData {
    * @param {string} resolution - Resolution: '1' (1-min), '5' (5-min), '15', '30', 'D' (daily)
    * @param {number} fromTimestamp - Start timestamp (Unix seconds)
    * @param {number} toTimestamp - End timestamp (Unix seconds)
+   * @param {object} [options] - { extendedHours?: boolean } — when true, requests
+   *   Schwab extended-hours (premarket/after-hours) candles. Default false
+   *   preserves the prior behavior for regular-session callers.
    * @returns {Promise<object[]|null>} Array of OHLCV candles or null
    */
-  async getCandles(symbol, resolution, fromTimestamp, toTimestamp) {
+  async getCandles(symbol, resolution, fromTimestamp, toTimestamp, options = {}) {
     const connection = await this.getActiveConnection();
     if (!connection) {
       return null;
@@ -449,7 +452,7 @@ class SchwabMarketData {
             frequency: frequency,
             startDate: startDate,
             endDate: endDate,
-            needExtendedHoursData: false
+            needExtendedHoursData: options.extendedHours === true
           },
           headers: {
             Authorization: `Bearer ${accessToken}`
